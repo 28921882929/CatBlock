@@ -1,4 +1,4 @@
-import { _decorator, Camera, Canvas, Component, game, Layers, Node, profiler, UITransform } from 'cc';
+import { _decorator, Camera, Canvas, Component, game, Layers, Node, profiler, SpriteFrame, UITransform } from 'cc';
 import { AudioManager } from '../core/AudioManager';
 import { EventBus } from '../core/EventBus';
 import { GameManager } from '../core/GameManager';
@@ -10,7 +10,7 @@ import { GameplayView } from '../game/view/GameplayView';
 import { Logger } from '../utils/Logger';
 import { GameConfig } from './GameConfig';
 
-const { ccclass } = _decorator;
+const { ccclass, property } = _decorator;
 
 /**
  * 游戏唯一入口组件，挂载在 `Main.scene` 的 `AppRoot` 节点上。
@@ -22,6 +22,18 @@ const { ccclass } = _decorator;
 export class App extends Component {
     /** 当前有效入口实例，用于阻止切换场景时重复初始化。 */
     private static current: App | null = null;
+
+    /** 棋盘装饰底图，由主场景持有以确保构建时收集依赖。 */
+    @property(SpriteFrame)
+    public boardFrame: SpriteFrame | null = null;
+
+    /** 十种空箱格资源，数组顺序与皮肤索引一一对应。 */
+    @property([SpriteFrame])
+    public emptyCellFrames: SpriteFrame[] = [];
+
+    /** 十种猫箱格资源，数组顺序与空箱格保持一致。 */
+    @property([SpriteFrame])
+    public occupiedCellFrames: SpriteFrame[] = [];
 
     /** 初始化持久节点、UI、音频和游戏状态。 */
     protected onLoad(): void {
@@ -88,11 +100,16 @@ export class App extends Component {
         return uiRoot;
     }
 
-    /** 创建无需外部美术资源即可运行的基础玩法表现层。 */
+    /** 创建玩法表现层，并注入由场景持有的棋盘资源。 */
     private createGameplayView(uiRoot: Node): void {
         const gameplayNode = new Node('GameplayView');
         gameplayNode.layer = Layers.Enum.UI_2D;
         uiRoot.addChild(gameplayNode);
-        gameplayNode.addComponent(GameplayView);
+        const gameplayView = gameplayNode.addComponent(GameplayView);
+        gameplayView.configureAssets({
+            board: this.boardFrame,
+            emptyCells: this.emptyCellFrames,
+            occupiedCells: this.occupiedCellFrames,
+        });
     }
 }

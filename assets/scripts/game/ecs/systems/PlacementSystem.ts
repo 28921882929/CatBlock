@@ -41,7 +41,7 @@ export class PlacementSystem implements System {
                 continue;
             }
 
-            const placedIndices = placePiece(board, piece, placement.row, placement.column);
+            const placedIndices = placePiece(board, piece, placement.row, placement.column, piece.visualStyle);
             const trayPosition = tray.pieceEntities.indexOf(pieceEntity);
             if (trayPosition >= 0) tray.pieceEntities.splice(trayPosition, 1);
             session.moveCount += 1;

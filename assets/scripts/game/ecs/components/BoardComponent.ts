@@ -11,6 +11,8 @@ export interface BoardComponent {
     readonly value: Int16Array;
     readonly flags: Uint32Array;
     readonly effectIds: string[];
+    /** 表现层皮肤索引；不参与占用、消除和特殊格规则计算。 */
+    readonly visualStyles: Uint8Array;
 }
 
 export const BoardComponentKey = 'game.board' as ComponentKey<BoardComponent>;
@@ -27,5 +29,6 @@ export function createBoardComponent(width = BoardConfig.width, height = BoardCo
         value: new Int16Array(cellCount),
         flags: new Uint32Array(cellCount),
         effectIds: new Array<string>(cellCount).fill(''),
+        visualStyles: new Uint8Array(cellCount),
     };
 }

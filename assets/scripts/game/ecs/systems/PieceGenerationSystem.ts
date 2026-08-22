@@ -31,6 +31,7 @@ export class PieceGenerationSystem implements System {
                         shapeId: shape.id,
                         cells: shape.cells,
                         trayIndex,
+                        visualStyle: (tray.round * 3 + trayIndex - 3) % 10,
                     };
                     targetWorld.set(createdEntity, PieceComponentKey, piece);
                 });

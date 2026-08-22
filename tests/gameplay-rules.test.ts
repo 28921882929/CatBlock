@@ -49,10 +49,11 @@ function testPlacementRules(): void {
 
     assert(canPlace(board, piece, 0, 0), 'empty board should accept the piece');
     assert(!canPlace(board, piece, 0, 7), 'piece should not exceed the right edge');
-    const indices = placePiece(board, piece, 0, 0);
+    const indices = placePiece(board, piece, 0, 0, 6);
     assert(indices.length === 2, 'two cells should be placed');
     assert(board.effectIds[1] === 'bomb', 'special effect id should be copied to board');
     assert(board.value[1] === 2, 'special value should be copied to board');
+    assert(board.visualStyles[1] === 6, 'piece visual style should be copied to board');
     assert(!canPlace(board, piece, 0, 0), 'occupied cells should reject overlapping piece');
 }
 
@@ -128,6 +129,7 @@ function testSystemPipeline(): void {
         shapeId: 'single',
         cells: [normalCell(0, 0)],
         trayIndex: 0,
+        visualStyle: 4,
     });
     world.set(pieceEntity, PlacementComponentKey, { row: 0, column: board.width - 1 });
     world.set(sessionEntity, BoardComponentKey, board);
@@ -147,6 +149,7 @@ function testSystemPipeline(): void {
     world.update(0);
     const score = world.get(sessionEntity, ScoreComponentKey);
     assert(board.occupied[0] === 0, 'completed row should be cleared in the same frame');
+    assert(board.visualStyles[0] === 0, 'cleared cells should reset their visual style');
     assert(score?.score === 11, 'single placement and one cleared line should award 11 points');
     assert(score?.combo === 1, 'successful clear should start combo at one');
     assert(!world.isAlive(pieceEntity), 'placed piece entity should be destroyed after commit');

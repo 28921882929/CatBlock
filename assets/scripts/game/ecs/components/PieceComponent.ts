@@ -6,6 +6,8 @@ export interface PieceComponent {
     readonly shapeId: string;
     readonly cells: readonly PieceCellConfig[];
     readonly trayIndex: number;
+    /** 同一方块全部组成格共用的表现皮肤索引。 */
+    readonly visualStyle: number;
 }
 
 export const PieceComponentKey = 'game.piece' as ComponentKey<PieceComponent>;

@@ -18,6 +18,7 @@ export interface ClearedCellSnapshot {
     readonly value: number;
     readonly flags: number;
     readonly effectId: string;
+    readonly visualStyle: number;
 }
 
 /** 将行列坐标转换为棋盘一维索引。 */
@@ -51,6 +52,7 @@ export function placePiece(
     piece: Pick<PieceComponent, 'cells'>,
     originRow: number,
     originColumn: number,
+    visualStyle = 0,
 ): number[] {
     const placedIndices: number[] = [];
     for (let cellIndex = 0; cellIndex < piece.cells.length; cellIndex += 1) {
@@ -62,6 +64,7 @@ export function placePiece(
         board.value[index] = cell.value ?? 0;
         board.flags[index] = cell.flags ?? CellFlags.None;
         board.effectIds[index] = cell.effectId ?? '';
+        board.visualStyles[index] = visualStyle;
         placedIndices.push(index);
     }
     return placedIndices;
@@ -123,6 +126,7 @@ export function clearCells(board: BoardComponent, indices: readonly number[]): C
             value: board.value[index],
             flags: board.flags[index],
             effectId: board.effectIds[index],
+            visualStyle: board.visualStyles[index],
         });
 
         // 不可摧毁格保留内容，未来可由特殊效果先移除该标记。
@@ -132,6 +136,7 @@ export function clearCells(board: BoardComponent, indices: readonly number[]): C
         board.value[index] = 0;
         board.flags[index] = CellFlags.None;
         board.effectIds[index] = '';
+        board.visualStyles[index] = 0;
     }
     return snapshots;
 }
