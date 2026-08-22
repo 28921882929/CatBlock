@@ -50,7 +50,9 @@ type PointerSource = 'touch' | 'mouse';
 /** 由入口组件注入的棋盘美术资源。 */
 export interface GameplayArtAssets {
     readonly board: SpriteFrame | null;
+    /** 旧版空箱资源保留兼容，但不会铺在棋盘空位上。 */
     readonly emptyCells: readonly SpriteFrame[];
+    /** 方块皮肤资源，用于待选区、拖拽中和已落棋盘格。 */
     readonly occupiedCells: readonly SpriteFrame[];
 }
 
@@ -82,13 +84,11 @@ export class GameplayView extends Component {
     private previewValid = false;
     private activePointer: PointerSource | null = null;
     private boardFrame: SpriteFrame | null = null;
-    private emptyCellFrames: readonly SpriteFrame[] = [];
     private occupiedCellFrames: readonly SpriteFrame[] = [];
 
     /** 注入场景持有的资源引用，并立即刷新全部棋盘节点。 */
     public configureAssets(assets: GameplayArtAssets): void {
         this.boardFrame = assets.board;
-        this.emptyCellFrames = assets.emptyCells.slice();
         this.occupiedCellFrames = assets.occupiedCells.slice();
         if (this.boardArtSprite) this.boardArtSprite.spriteFrame = this.boardFrame;
         this.redraw();
@@ -387,14 +387,14 @@ export class GameplayView extends Component {
         this.backgroundGraphics.fill();
     }
 
-    /** 将 ECS 棋盘状态同步到 64 个常驻 Sprite 节点。 */
+    /** 将 ECS 棋盘状态同步到常驻方块节点；空位由棋盘底图自身显示。 */
     private syncBoard(board: ReturnType<GameplayModule['getBoard']>): void {
         for (let index = 0; index < this.boardCellNodes.length; index += 1) {
             const occupied = board ? board.occupied[index] !== 0 : false;
             const style = occupied && board ? board.visualStyles[index] : index;
             this.setSpriteFrame(
                 this.boardCellNodes[index],
-                occupied ? this.frameAt(this.occupiedCellFrames, style) : this.frameAt(this.emptyCellFrames, style),
+                occupied ? this.frameAt(this.occupiedCellFrames, style) : null,
             );
         }
     }

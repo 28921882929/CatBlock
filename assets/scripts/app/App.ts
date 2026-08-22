@@ -27,7 +27,7 @@ export class App extends Component {
     @property(SpriteFrame)
     public boardFrame: SpriteFrame | null = null;
 
-    /** 十种空箱格资源，数组顺序与皮肤索引一一对应。 */
+    /** 兼容旧资源字段；空位由棋盘底图显示，不会铺设这些方块图。 */
     @property([SpriteFrame])
     public emptyCellFrames: SpriteFrame[] = [];
 

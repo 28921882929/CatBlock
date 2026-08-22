@@ -83,7 +83,7 @@ ECS 只管理单局规则，资源、音频、UI 和全局状态继续使用项�
 
 ## 表现层替换
 
-当前 `GameplayView` 使用场景持有的棋盘、空箱和猫箱 `SpriteFrame`，并通过常驻节点与 Sprite 池同步状态。
+当前 `GameplayView` 使用场景持有的棋盘底图和方块 `SpriteFrame`，并通过常驻节点与 Sprite 池同步状态；棋盘空位由底图自身的格线显示，不铺设方块贴图。
 拖拽层负责整槽命中、手指避让、格子吸附、合法性预览和放置反馈；规则合法性仍统一调用 `BoardRules.canPlace`。
 更换皮肤时只需调整 `Main.scene` 中 `App` 持有的资源数组，不应修改 ECS 规则算法。
 
