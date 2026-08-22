@@ -2,6 +2,7 @@ import { _decorator, Component } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameManager } from '../core/GameManager';
 import { GameEvents, GameState } from './GameState';
+import { GameplayModule } from './GameplayModule';
 
 const { ccclass } = _decorator;
 
@@ -13,7 +14,9 @@ const { ccclass } = _decorator;
 export class GameController extends Component {
     /** 从菜单进入正式游戏。 */
     public startGame(): void {
-        GameManager.instance.changeState(GameState.Playing);
+        if (GameManager.instance.changeState(GameState.Playing)) {
+            GameplayModule.instance.startSession();
+        }
     }
 
     /** 暂停正在进行的游戏。 */
@@ -33,12 +36,15 @@ export class GameController extends Component {
 
     /** 离开当前对局并返回菜单。 */
     public returnToMenu(): void {
-        GameManager.instance.changeState(GameState.Menu);
+        if (GameManager.instance.changeState(GameState.Menu)) {
+            GameplayModule.instance.destroySession();
+        }
     }
 
     /** 重新进入游戏状态，并广播对局重置事件。 */
     public restartGame(): void {
         if (GameManager.instance.changeState(GameState.Playing)) {
+            GameplayModule.instance.startSession();
             EventBus.emit(GameEvents.Restarted, undefined);
         }
     }
