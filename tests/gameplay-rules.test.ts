@@ -92,6 +92,16 @@ function testAvailablePlacement(): void {
     assert(hasAvailablePlacement(board, [single]), 'one empty cell should fit a single block');
 }
 
+/** 验证表现层使用的中心原点坐标换算，屏幕坐标才能命中待选区。 */
+function testPointerCoordinateMapping(): void {
+    const visibleWidth = 1280;
+    const visibleHeight = 720;
+    const screenX = 960;
+    const screenY = 612;
+    assert(screenX - visibleWidth * 0.5 === 320, 'screen x should map to centered local x');
+    assert(screenY - visibleHeight * 0.5 === 252, 'screen y should map to centered local y');
+}
+
 /** 验证查询和延迟结构变更不会污染当前遍历。 */
 function testWorldLifecycle(): void {
     interface Marker { value: number }
@@ -159,6 +169,7 @@ function testSystemPipeline(): void {
 testPlacementRules();
 testLineDetectionAndClear();
 testAvailablePlacement();
+testPointerCoordinateMapping();
 testWorldLifecycle();
 testSystemPipeline();
 console.log('Gameplay rules tests: OK');

@@ -2,6 +2,7 @@ import {
     _decorator,
     Color,
     Component,
+    EventMouse,
     EventTouch,
     Graphics,
     HorizontalTextAlignment,
@@ -43,6 +44,9 @@ interface TrayPieceBounds {
     readonly top: number;
 }
 
+/** 当前正在驱动拖拽的输入来源，避免浏览器合成事件重复提交。 */
+type PointerSource = 'touch' | 'mouse';
+
 /** 由入口组件注入的棋盘美术资源。 */
 export interface GameplayArtAssets {
     readonly board: SpriteFrame | null;
@@ -58,7 +62,6 @@ export interface GameplayArtAssets {
 export class GameplayView extends Component {
     private backgroundGraphics: Graphics | null = null;
     private statusLabel: Label | null = null;
-    private transform: UITransform | null = null;
     private boardArtSprite: Sprite | null = null;
     private boardCellRoot: Node | null = null;
     private previewRoot: Node | null = null;
@@ -77,6 +80,7 @@ export class GameplayView extends Component {
     private previewRow = -1;
     private previewColumn = -1;
     private previewValid = false;
+    private activePointer: PointerSource | null = null;
     private boardFrame: SpriteFrame | null = null;
     private emptyCellFrames: readonly SpriteFrame[] = [];
     private occupiedCellFrames: readonly SpriteFrame[] = [];
@@ -102,8 +106,8 @@ export class GameplayView extends Component {
         this.boardTop = this.height * 0.5 - 90;
         this.trayY = this.boardTop - this.cellSize * BoardConfig.height - 82;
 
-        this.transform = this.node.addComponent(UITransform);
-        this.transform.setContentSize(this.width, this.height);
+        const transform = this.node.addComponent(UITransform);
+        transform.setContentSize(this.width, this.height);
         this.backgroundGraphics = this.node.addComponent(Graphics);
         this.createRenderLayers();
         this.createStatusLabel();
@@ -118,6 +122,10 @@ export class GameplayView extends Component {
         this.node.off(Node.EventType.TOUCH_MOVE, this.onTouchMove, this);
         this.node.off(Node.EventType.TOUCH_END, this.onTouchEnd, this);
         this.node.off(Node.EventType.TOUCH_CANCEL, this.onTouchCancel, this);
+        this.node.off(Node.EventType.MOUSE_DOWN, this.onMouseDown, this);
+        this.node.off(Node.EventType.MOUSE_MOVE, this.onMouseMove, this);
+        this.node.off(Node.EventType.MOUSE_UP, this.onMouseUp, this);
+        this.node.off(Node.EventType.MOUSE_LEAVE, this.onMouseLeave, this);
         EventBus.clearOwner(this);
     }
 
@@ -186,6 +194,10 @@ export class GameplayView extends Component {
         this.node.on(Node.EventType.TOUCH_MOVE, this.onTouchMove, this);
         this.node.on(Node.EventType.TOUCH_END, this.onTouchEnd, this);
         this.node.on(Node.EventType.TOUCH_CANCEL, this.onTouchCancel, this);
+        this.node.on(Node.EventType.MOUSE_DOWN, this.onMouseDown, this);
+        this.node.on(Node.EventType.MOUSE_MOVE, this.onMouseMove, this);
+        this.node.on(Node.EventType.MOUSE_UP, this.onMouseUp, this);
+        this.node.on(Node.EventType.MOUSE_LEAVE, this.onMouseLeave, this);
     }
 
     /** 监听会改变棋盘或待选区显示的数据事件。 */
@@ -201,6 +213,60 @@ export class GameplayView extends Component {
 
     /** 点击菜单或结算画面开始新游戏，否则尝试选中待放方块。 */
     private onTouchStart(event: EventTouch): void {
+        if (this.activePointer !== null) return;
+        this.activePointer = 'touch';
+        const position = this.pointerToLocal(event);
+        this.beginPointer(position);
+    }
+
+    /** 手指移动时持续更新拖拽位置。 */
+    private onTouchMove(event: EventTouch): void {
+        if (this.activePointer !== 'touch') return;
+        const position = this.pointerToLocal(event);
+        this.movePointer(position);
+    }
+
+    /** 手指抬起时完成本次放置尝试。 */
+    private onTouchEnd(): void {
+        if (this.activePointer !== 'touch') return;
+        this.endPointer();
+    }
+
+    /** 触摸被系统取消时让方块返回待选区。 */
+    private onTouchCancel(): void {
+        if (this.activePointer !== 'touch') return;
+        this.cancelPointer();
+    }
+
+    /** 鼠标左键按下时复用与触摸相同的选中流程。 */
+    private onMouseDown(event: EventMouse): void {
+        if (event.getButton() !== EventMouse.BUTTON_LEFT || this.activePointer !== null) return;
+        this.activePointer = 'mouse';
+        const position = this.pointerToLocal(event);
+        this.beginPointer(position);
+    }
+
+    /** 只有鼠标按下并选中方块后才处理移动，普通悬停不会触发重绘。 */
+    private onMouseMove(event: EventMouse): void {
+        if (this.activePointer !== 'mouse') return;
+        const position = this.pointerToLocal(event);
+        this.movePointer(position);
+    }
+
+    /** 鼠标左键抬起时完成本次放置尝试。 */
+    private onMouseUp(event: EventMouse): void {
+        if (event.getButton() !== EventMouse.BUTTON_LEFT || this.activePointer !== 'mouse') return;
+        this.endPointer();
+    }
+
+    /** 鼠标拖出游戏区域时取消拖拽，避免残留悬空方块。 */
+    private onMouseLeave(): void {
+        if (this.activePointer !== 'mouse') return;
+        this.cancelPointer();
+    }
+
+    /** 根据按下位置处理开始游戏或选中待选方块。 */
+    private beginPointer(position: Vec3): void {
         const state = GameManager.instance.currentState;
         if (state === GameState.Menu || state === GameState.GameOver) {
             if (GameManager.instance.changeState(GameState.Playing)) {
@@ -211,7 +277,6 @@ export class GameplayView extends Component {
         }
         if (state !== GameState.Playing) return;
 
-        const position = this.touchToLocal(event);
         for (let index = 0; index < this.trayBounds.length; index += 1) {
             const bounds = this.trayBounds[index];
             if (position.x < bounds.left || position.x > bounds.right) continue;
@@ -225,29 +290,30 @@ export class GameplayView extends Component {
     }
 
     /** 更新拖动位置和棋盘吸附预览。 */
-    private onTouchMove(event: EventTouch): void {
+    private movePointer(position: Vec3): void {
         if (this.draggingEntity === null) return;
-        this.updateDragPosition(this.touchToLocal(event));
+        this.updateDragPosition(position);
         this.updatePreview();
         this.redraw();
     }
 
     /** 松手时只提交合法预览，非法落点会立即返回待选区。 */
-    private onTouchEnd(): void {
-        if (this.draggingEntity === null) return;
-        if (this.previewValid) {
+    private endPointer(): void {
+        if (this.draggingEntity !== null && this.previewValid) {
             GameplayModule.instance.requestPlacement(
                 this.draggingEntity,
                 this.previewRow,
                 this.previewColumn,
             );
         }
+        this.activePointer = null;
         this.resetDrag();
         this.redraw();
     }
 
-    /** 触摸被系统取消时让方块返回待选区。 */
-    private onTouchCancel(): void {
+    /** 取消当前指针操作并恢复待选区。 */
+    private cancelPointer(): void {
+        this.activePointer = null;
         this.resetDrag();
         this.redraw();
     }
@@ -512,10 +578,14 @@ export class GameplayView extends Component {
         return { width: maxColumn + 1, height: maxRow + 1 };
     }
 
-    /** 把触摸 UI 坐标转换到当前全屏节点的局部坐标。 */
-    private touchToLocal(event: EventTouch): Vec3 {
+    /** 把触摸或鼠标 UI 坐标转换到当前全屏节点的局部坐标。 */
+    private pointerToLocal(event: EventTouch | EventMouse): Vec3 {
         const location = event.getUILocation();
-        return this.transform?.convertToNodeSpaceAR(new Vec3(location.x, location.y, 0)) ?? new Vec3();
+        return new Vec3(
+            location.x - this.width * 0.5,
+            location.y - this.height * 0.5,
+            0,
+        );
     }
 
     /** 清理当前拖动和落点预览状态。 */
