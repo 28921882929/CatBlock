@@ -98,12 +98,16 @@ export class GameplayView extends Component {
         const visibleSize = view.getVisibleSize();
         this.width = visibleSize.width;
         this.height = visibleSize.height;
+        // 以棋盘九宫格外框反推逻辑格尺寸，保证竖屏手机不发生横向溢出。
+        const maxOuterWidth = this.width - 24;
+        const maxOuterHeight = this.height - 250;
         this.cellSize = Math.floor(Math.min(
-            (this.width - 44) / BoardConfig.width,
-            (this.height - 280) / BoardConfig.height,
+            // 九宫格 Sprite 的可见外框约占自定义尺寸的 66%，预留该比例避免竖屏溢出。
+            maxOuterWidth / (BoardConfig.width * 1.46),
+            maxOuterHeight / (BoardConfig.height * 1.2),
         ));
         this.boardLeft = -this.cellSize * BoardConfig.width * 0.5;
-        this.boardTop = this.height * 0.5 - 90;
+        this.boardTop = this.height * 0.5 - 135;
         this.trayY = this.boardTop - this.cellSize * BoardConfig.height - 82;
 
         const transform = this.node.addComponent(UITransform);
@@ -134,9 +138,11 @@ export class GameplayView extends Component {
         const boardArtNode = this.createLayerNode('BoardArtwork');
         const boardArtTransform = boardArtNode.getComponent(UITransform);
         const boardSize = this.cellSize * BoardConfig.width;
-        boardArtTransform?.setContentSize(boardSize * 1.82, boardSize * 1.98);
+        boardArtTransform?.setContentSize(boardSize * 2.2, boardSize * 2.4);
         boardArtNode.setPosition(0, this.boardTop - boardSize * 0.5);
         this.boardArtSprite = boardArtNode.addComponent(Sprite);
+        // SpriteFrame 的 borderTop/Bottom/Left/Right 定义九宫格固定边框。
+        this.boardArtSprite.type = Sprite.Type.SLICED;
         this.boardArtSprite.sizeMode = Sprite.SizeMode.CUSTOM;
 
         this.boardCellRoot = this.createLayerNode('BoardCells');
