@@ -1,7 +1,14 @@
 import { Asset, resources } from 'cc';
 
+/** Cocos 资源类型的构造器签名。 */
 type AssetConstructor<T extends Asset> = new (...args: any[]) => T;
 
+/**
+ * `resources` 目录资源的异步加载与引用计数管理器。
+ *
+ * 同一路径只保留一个已加载资源；不再使用时必须调用 `release`，
+ * 应用退出时由 `releaseAll` 统一兜底释放。
+ */
 export class ResourceManager {
     private static readonly singleton = new ResourceManager();
     private readonly retainedAssets = new Map<string, Asset>();
@@ -10,6 +17,11 @@ export class ResourceManager {
         return this.singleton;
     }
 
+    /**
+     * 加载并持有指定资源。
+     * @param path 相对于 `assets/resources` 的路径，不包含扩展名。
+     * @param type 期望加载的 Cocos 资源类型。
+     */
     public load<T extends Asset>(path: string, type: AssetConstructor<T>): Promise<T> {
         const cached = this.retainedAssets.get(path);
         if (cached instanceof type) return Promise.resolve(cached);
@@ -27,6 +39,7 @@ export class ResourceManager {
         });
     }
 
+    /** 释放指定路径对应的资源引用。 */
     public release(path: string): void {
         const asset = this.retainedAssets.get(path);
         if (!asset) return;
@@ -34,8 +47,9 @@ export class ResourceManager {
         this.retainedAssets.delete(path);
     }
 
+    /** 释放管理器当前持有的全部资源。 */
     public releaseAll(): void {
-        for (const asset of this.retainedAssets.values()) asset.decRef();
+        this.retainedAssets.forEach((asset) => asset.decRef());
         this.retainedAssets.clear();
     }
 }

@@ -10,10 +10,18 @@ import { GameConfig } from './GameConfig';
 
 const { ccclass } = _decorator;
 
+/**
+ * 游戏唯一入口组件，挂载在 `Main.scene` 的 `AppRoot` 节点上。
+ *
+ * 它负责创建跨场景常驻节点并初始化各核心管理器。具体玩法逻辑不应
+ * 放在这里，避免入口随着业务增长而变得臃肿。
+ */
 @ccclass('App')
 export class App extends Component {
+    /** 当前有效入口实例，用于阻止切换场景时重复初始化。 */
     private static current: App | null = null;
 
+    /** 初始化持久节点、UI、音频和游戏状态。 */
     protected onLoad(): void {
         if (App.current && App.current !== this) {
             this.node.destroy();
@@ -31,10 +39,12 @@ export class App extends Component {
         Logger.log(`${GameConfig.gameName} ${GameConfig.version} initialized`);
     }
 
+    /** 所有管理器准备完成后进入菜单状态。 */
     protected start(): void {
         GameManager.instance.changeState(GameState.Menu);
     }
 
+    /** 应用根节点销毁时统一释放事件、UI 和资源引用。 */
     protected onDestroy(): void {
         if (App.current !== this) return;
         UIManager.instance.closeAll(true);
@@ -44,6 +54,7 @@ export class App extends Component {
         App.current = null;
     }
 
+    /** 创建覆盖屏幕的 UI Canvas 及专用正交相机。 */
     private createUIRoot(): Node {
         const uiRoot = new Node('UIRoot');
         uiRoot.layer = Layers.Enum.UI_2D;
