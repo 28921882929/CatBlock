@@ -1,4 +1,5 @@
 import { Asset, resources } from 'cc';
+import { Logger } from '../utils/Logger';
 
 /** Cocos 资源类型的构造器签名。 */
 type AssetConstructor<T extends Asset> = new (...args: any[]) => T;
@@ -22,14 +23,15 @@ export class ResourceManager {
      * @param path 相对于 `assets/resources` 的路径，不包含扩展名。
      * @param type 期望加载的 Cocos 资源类型。
      */
-    public load<T extends Asset>(path: string, type: AssetConstructor<T>): Promise<T> {
+    public load<T extends Asset>(path: string, type: AssetConstructor<T>): Promise<T | null> {
         const cached = this.retainedAssets.get(path);
         if (cached instanceof type) return Promise.resolve(cached);
 
-        return new Promise<T>((resolve, reject) => {
+        return new Promise<T | null>((resolve) => {
             resources.load(path, type, (error, asset) => {
-                if (error) {
-                    reject(error);
+                if (error || !asset) {
+                    Logger.error(`资源加载失败：${path}`, error);
+                    resolve(null);
                     return;
                 }
                 asset.addRef();

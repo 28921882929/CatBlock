@@ -21,9 +21,13 @@ import {
     placePiece,
 } from '../assets/scripts/game/logic/BoardRules';
 
-/** 轻量断言，避免纯逻辑测试依赖第三方测试框架。 */
+let assertionFailures = 0;
+
+/** 轻量断言，累计失败并由进程退出码反馈结果，不主动抛出异常。 */
 function assert(condition: boolean, message: string): void {
-    if (!condition) throw new Error(`Assertion failed: ${message}`);
+    if (condition) return;
+    assertionFailures += 1;
+    console.error(`断言失败：${message}`);
 }
 
 function normalCell(row: number, column: number): PieceCellConfig {
@@ -172,4 +176,11 @@ testAvailablePlacement();
 testPointerCoordinateMapping();
 testWorldLifecycle();
 testSystemPipeline();
-console.log('Gameplay rules tests: OK');
+
+if (assertionFailures > 0) {
+    const runtimeProcess = (globalThis as { process?: { exitCode?: number } }).process;
+    if (runtimeProcess) runtimeProcess.exitCode = 1;
+    console.error(`玩法规则测试失败：${assertionFailures} 项`);
+} else {
+    console.log('Gameplay rules tests: OK');
+}

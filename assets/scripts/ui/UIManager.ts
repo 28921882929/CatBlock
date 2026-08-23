@@ -1,5 +1,6 @@
 import { instantiate, Node, Prefab } from 'cc';
 import { ResourceManager } from '../core/ResourceManager';
+import { Logger } from '../utils/Logger';
 import { BaseView } from './BaseView';
 
 /**
@@ -33,7 +34,7 @@ export class UIManager {
      * @param name 注册时使用的页面名称。
      * @param data 传递给页面 `onOpen` 的可选业务数据。
      */
-    public async open(name: string, data?: unknown): Promise<Node> {
+    public async open(name: string, data?: unknown): Promise<Node | null> {
         const existing = this.opened.get(name);
         if (existing?.isValid) {
             existing.active = true;
@@ -41,11 +42,21 @@ export class UIManager {
             return existing;
         }
 
-        if (!this.root) throw new Error('UIManager is not initialized');
+        if (!this.root) {
+            Logger.error(`UI 管理器尚未初始化，无法打开页面：${name}`);
+            return null;
+        }
         const path = this.paths.get(name);
-        if (!path) throw new Error(`UI is not registered: ${name}`);
+        if (!path) {
+            Logger.error(`UI 页面尚未注册：${name}`);
+            return null;
+        }
 
         const prefab = await ResourceManager.instance.load(path, Prefab);
+        if (!prefab) {
+            Logger.error(`UI 页面资源加载失败：${name}（${path}）`);
+            return null;
+        }
         const node = instantiate(prefab);
         node.name = name;
         this.root.addChild(node);

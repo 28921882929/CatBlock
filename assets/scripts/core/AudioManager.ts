@@ -1,5 +1,6 @@
 import { AudioClip, AudioSource, Node } from 'cc';
 import { GameConfig } from '../app/GameConfig';
+import { Logger } from '../utils/Logger';
 import { ResourceManager } from './ResourceManager';
 
 /**
@@ -39,16 +40,24 @@ export class AudioManager {
 
     /** 加载并循环播放背景音乐。 */
     public async playMusic(path: string): Promise<void> {
-        if (!this.musicSource) throw new Error('AudioManager is not initialized');
+        if (!this.musicSource) {
+            Logger.error('音频管理器尚未初始化，无法播放背景音乐');
+            return;
+        }
         const clip = await ResourceManager.instance.load(path, AudioClip);
+        if (!clip) return;
         this.musicSource.clip = clip;
         this.musicSource.play();
     }
 
     /** 加载并单次播放音效，不会中断当前背景音乐。 */
     public async playEffect(path: string): Promise<void> {
-        if (!this.effectSource) throw new Error('AudioManager is not initialized');
+        if (!this.effectSource) {
+            Logger.error('音频管理器尚未初始化，无法播放音效');
+            return;
+        }
         const clip = await ResourceManager.instance.load(path, AudioClip);
+        if (!clip) return;
         this.effectSource.playOneShot(clip);
     }
 

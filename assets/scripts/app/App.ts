@@ -122,12 +122,13 @@ export class App extends Component {
     /** 创建玩法表现层，并注入由场景持有的棋盘资源。 */
     private createGameplayView(uiRoot: Node): void {
         if (!this.gameplayViewPrefab) {
-            throw new Error('Main.scene App.gameplayViewPrefab is not configured');
+            Logger.error('主场景未配置 GameplayView 预制件，已跳过玩法界面创建');
+            return;
         }
         const gameplayNode = instantiate(this.gameplayViewPrefab);
         uiRoot.addChild(gameplayNode);
         // 预制件保持为纯 UI 层级，挂入 Canvas 后再添加逻辑组件，
-        // 避免自定义组件在反序列化阶段抛错导致整个预制件实例化失败。
+        // 避免自定义组件在反序列化阶段初始化失败，影响整个预制件实例化。
         const gameplayView = gameplayNode.addComponent(GameplayView);
         gameplayView.configureAssets({
             board: this.boardFrame,

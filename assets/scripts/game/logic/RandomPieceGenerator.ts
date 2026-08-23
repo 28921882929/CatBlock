@@ -1,4 +1,5 @@
 import { PieceConfigs, type PieceShapeConfig } from '../config/PieceConfig';
+import { Logger } from '../../utils/Logger';
 
 /** 返回 0（含）到 1（不含）的随机函数。 */
 export type RandomSource = () => number;
@@ -11,9 +12,12 @@ export class RandomPieceGenerator {
     ) {}
 
     /** 从当前轮次允许出现的配置中抽取一个方块。 */
-    public next(round: number): PieceShapeConfig {
+    public next(round: number): PieceShapeConfig | null {
         const available = this.configs.filter((config) => (config.minRound ?? 0) <= round);
-        if (available.length === 0) throw new Error('No piece configuration is available');
+        if (available.length === 0) {
+            Logger.error(`第 ${round} 轮没有可用的方块配置，已取消本轮生成`);
+            return null;
+        }
 
         let totalWeight = 0;
         available.forEach((config) => {

@@ -23,9 +23,17 @@ export class PieceGenerationSystem implements System {
 
             tray.round += 1;
             session.roundCount = tray.round;
+            // 先完成整组配置抽取，任意配置缺失时停止会话，避免生成不完整的待选区。
+            const shapes = Array.from({ length: 3 }, () => this.generator.next(tray.round));
+            if (shapes.some((shape) => shape === null)) {
+                session.running = false;
+                continue;
+            }
+
             const generatedEntities: number[] = [];
             for (let trayIndex = 0; trayIndex < 3; trayIndex += 1) {
-                const shape = this.generator.next(tray.round);
+                const shape = shapes[trayIndex];
+                if (!shape) continue;
                 const entity = world.deferCreate((targetWorld, createdEntity) => {
                     const piece: PieceComponent = {
                         shapeId: shape.id,

@@ -19,6 +19,7 @@ import {
 } from 'cc';
 import { EventBus } from '../../core/EventBus';
 import { GameManager } from '../../core/GameManager';
+import { Logger } from '../../utils/Logger';
 import { BoardConfig } from '../config/BoardConfig';
 import type { PieceComponent } from '../ecs/components/PieceComponent';
 import type { Entity } from '../ecs/core/Entity';
@@ -100,7 +101,11 @@ export class GameplayView extends Component {
     }
 
     protected onLoad(): void {
-        this.bindPrefabNodes();
+        if (!this.bindPrefabNodes()) {
+            // 保留节点便于编辑器排查，但停止当前界面继续执行不完整的绑定逻辑。
+            this.node.active = false;
+            return;
+        }
         this.installSolidSpriteFrame();
         this.fitPrefabToScreen();
         this.captureDefaultCells();
@@ -150,24 +155,35 @@ export class GameplayView extends Component {
         }
     }
 
-    /** 按名称绑定预制件节点；缺失时直接报出具体路径。 */
-    private bindPrefabNodes(): void {
-        this.scoreLabel = this.requireComponent('ScoreCard/ScoreLabel', Label);
-        this.highScoreLabel = this.requireComponent('HighScoreCard/HighScoreLabel', Label);
-        this.comboLabel = this.requireComponent('ComboCard/ComboLabel', Label);
-        this.trayHintLabel = this.requireComponent('TrayHint', Label);
-        this.messageOverlay = this.requireNode('MessageOverlay');
-        this.messageTitleLabel = this.requireComponent('MessageOverlay/MessageTitle', Label);
-        this.messageBodyLabel = this.requireComponent('MessageOverlay/MessageBody', Label);
-        this.messageActionLabel = this.requireComponent('MessageOverlay/ActionBackground/MessageAction', Label);
-        this.boardCellRoot = this.requireNode('BoardGrid');
-        this.previewRoot = this.requireNode('PlacementPreview');
-        this.trayRoot = this.requireNode('TrayPieces');
-        this.dragRoot = this.requireNode('DraggingPiece');
+    /** 按名称绑定预制件节点；缺失时记录具体路径并停用当前界面。 */
+    private bindPrefabNodes(): boolean {
+        this.scoreLabel = this.findComponent('ScoreCard/ScoreLabel', Label);
+        this.highScoreLabel = this.findComponent('HighScoreCard/HighScoreLabel', Label);
+        this.comboLabel = this.findComponent('ComboCard/ComboLabel', Label);
+        this.trayHintLabel = this.findComponent('TrayHint', Label);
+        this.messageOverlay = this.findNode('MessageOverlay');
+        this.messageTitleLabel = this.findComponent('MessageOverlay/MessageTitle', Label);
+        this.messageBodyLabel = this.findComponent('MessageOverlay/MessageBody', Label);
+        this.messageActionLabel = this.findComponent('MessageOverlay/ActionBackground/MessageAction', Label);
+        this.boardCellRoot = this.findNode('BoardGrid');
+        this.previewRoot = this.findNode('PlacementPreview');
+        this.trayRoot = this.findNode('TrayPieces');
+        this.dragRoot = this.findNode('DraggingPiece');
+
+        if (!this.scoreLabel || !this.highScoreLabel || !this.comboLabel || !this.trayHintLabel
+            || !this.messageOverlay || !this.messageTitleLabel || !this.messageBodyLabel
+            || !this.messageActionLabel || !this.boardCellRoot || !this.previewRoot
+            || !this.trayRoot || !this.dragRoot) {
+            Logger.error('GameplayView 预制件结构不完整，已停用玩法界面');
+            return false;
+        }
+
         this.boardCellNodes = this.boardCellRoot.children.slice(0, BoardConfig.width * BoardConfig.height);
         if (this.boardCellNodes.length !== BoardConfig.width * BoardConfig.height) {
-            throw new Error(`GameplayView.prefab BoardGrid must contain ${BoardConfig.width * BoardConfig.height} cells`);
+            Logger.error(`GameplayView 棋盘必须包含 ${BoardConfig.width * BoardConfig.height} 个格子，当前为 ${this.boardCellNodes.length} 个`);
+            return false;
         }
+        return true;
     }
 
     /** 将整个 360×720 预制件统一缩放并保持屏幕正中。 */
@@ -192,16 +208,20 @@ export class GameplayView extends Component {
         }
     }
 
-    private requireNode(path: string): Node {
+    /** 安全查找预制件节点，未找到时返回空值。 */
+    private findNode(path: string): Node | null {
         let current: Node | null = this.node;
         for (const name of path.split('/')) current = current?.getChildByName(name) ?? null;
-        if (!current) throw new Error(`GameplayView.prefab is missing node: ${path}`);
+        if (!current) Logger.error(`GameplayView 预制件缺少节点：${path}`);
         return current;
     }
 
-    private requireComponent<T extends Component>(path: string, type: new (...args: never[]) => T): T {
-        const component = this.requireNode(path).getComponent(type);
-        if (!component) throw new Error(`GameplayView.prefab node ${path} is missing ${type.name}`);
+    /** 安全查找节点组件，未配置时返回空值。 */
+    private findComponent<T extends Component>(path: string, type: new (...args: never[]) => T): T | null {
+        const node = this.findNode(path);
+        if (!node) return null;
+        const component = node.getComponent(type);
+        if (!component) Logger.error(`GameplayView 节点 ${path} 缺少组件：${type.name}`);
         return component;
     }
 
