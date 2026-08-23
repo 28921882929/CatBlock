@@ -43,6 +43,11 @@ const EMPTY_RECORD: Readonly<PlayerRecord> = Object.freeze({
     totalClearedLines: 0,
 });
 
+/** 将本地存储中的未知字段收敛为可安全使用的非负整数。 */
+function normalizeRecordNumber(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
 /**
  * ECS 单局玩法的外围门面。
  * Cocos 输入与表现层只调用本类，不直接访问具体 System。
@@ -71,7 +76,7 @@ export class GameplayModule {
     /** 创建一局全新的游戏，并立即生成首批三个方块。 */
     public startSession(): void {
         this.destroySession();
-        const record = StorageManager.instance.get<PlayerRecord>(PLAYER_RECORD_KEY, { ...EMPTY_RECORD });
+        const record = this.getPlayerRecord();
         this.world = this.createWorld();
         this.sessionEntity = this.world.createEntity();
         this.world.set(this.sessionEntity, BoardComponentKey, createBoardComponent());
@@ -134,6 +139,19 @@ export class GameplayModule {
         return this.getSessionComponent(GameSessionComponentKey);
     }
 
+    /** 返回跨单局保存的玩家记录，供菜单和结算界面展示。 */
+    public getPlayerRecord(): PlayerRecord {
+        const storedValue = StorageManager.instance.get<unknown>(PLAYER_RECORD_KEY, EMPTY_RECORD);
+        const stored = storedValue && typeof storedValue === 'object'
+            ? storedValue as Partial<PlayerRecord>
+            : EMPTY_RECORD;
+        return {
+            highScore: normalizeRecordNumber(stored.highScore),
+            totalGames: normalizeRecordNumber(stored.totalGames),
+            totalClearedLines: normalizeRecordNumber(stored.totalClearedLines),
+        };
+    }
+
     /** 销毁当前单局，但保留特殊格注册表。 */
     public destroySession(): void {
         this.world?.destroy();
@@ -165,7 +183,12 @@ export class GameplayModule {
         this.emitAll<PiecePlacedEvent>(world, GameplayEvents.PiecePlaced);
         this.emitAll<PlacementRejectedEvent>(world, GameplayEvents.PlacementRejected);
         this.emitAll<MoveResolvedEvent>(world, GameplayEvents.MoveResolved);
-        this.emitAll<ScoreChangedEvent>(world, GameplayEvents.ScoreChanged);
+        const scoreEvents = world.events.read<ScoreChangedEvent>(GameplayEvents.ScoreChanged);
+        for (let index = 0; index < scoreEvents.length; index += 1) {
+            const event = scoreEvents[index];
+            this.saveHighScore(event.highScore);
+            EventBus.emit(GameplayEvents.ScoreChanged, event);
+        }
         this.emitAll<TrayRefilledEvent>(world, GameplayEvents.TrayRefilled);
 
         const gameOverEvents = world.events.read<GameOverEvent>(GameplayEvents.GameOver);
@@ -189,10 +212,18 @@ export class GameplayModule {
     private saveRecord(): void {
         const score = this.getScore();
         if (!score) return;
-        const record = StorageManager.instance.get<PlayerRecord>(PLAYER_RECORD_KEY, { ...EMPTY_RECORD });
+        const record = this.getPlayerRecord();
         record.highScore = Math.max(record.highScore, score.highScore);
         record.totalGames += 1;
         record.totalClearedLines += score.totalClearedLines;
+        StorageManager.instance.set(PLAYER_RECORD_KEY, record);
+    }
+
+    /** 新纪录产生时立即落盘，避免刷新或关闭页面导致最高分丢失。 */
+    private saveHighScore(highScore: number): void {
+        const record = this.getPlayerRecord();
+        if (highScore <= record.highScore) return;
+        record.highScore = highScore;
         StorageManager.instance.set(PLAYER_RECORD_KEY, record);
     }
 

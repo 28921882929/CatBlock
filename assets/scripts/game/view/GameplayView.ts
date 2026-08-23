@@ -25,11 +25,13 @@ import type { PieceComponent } from '../ecs/components/PieceComponent';
 import type { Entity } from '../ecs/core/Entity';
 import {
     GameplayEvents,
+    type MoveResolvedEvent,
     type PiecePlacedEvent,
     type PlacementRejectedEvent,
+    type ScoreChangedEvent,
 } from '../ecs/events/GameplayEvents';
 import { GameplayModule } from '../GameplayModule';
-import { GameEvents, GameState } from '../GameState';
+import { GameEvents, GameState, type GameStateChange } from '../GameState';
 import { canPlace } from '../logic/BoardRules';
 
 const { ccclass } = _decorator;
@@ -76,6 +78,7 @@ export class GameplayView extends Component {
     private messageTitleLabel: Label | null = null;
     private messageBodyLabel: Label | null = null;
     private messageActionLabel: Label | null = null;
+    private boardFrameSprite: Sprite | null = null;
     private boardCellRoot: Node | null = null;
     private previewRoot: Node | null = null;
     private trayRoot: Node | null = null;
@@ -91,12 +94,17 @@ export class GameplayView extends Component {
     private previewValid = false;
     private activePointer: PointerSource | null = null;
     private viewScale = 1;
+    private boardFrame: SpriteFrame | null = null;
     private occupiedCellFrames: readonly SpriteFrame[] = [];
+    private lastPresentedScore = 0;
+    private effectRoot: Node | null = null;
     private solidTexture: Texture2D | null = null;
     private solidSpriteFrame: SpriteFrame | null = null;
 
     public configureAssets(assets: GameplayArtAssets): void {
+        this.boardFrame = assets.board;
         this.occupiedCellFrames = assets.occupiedCells.slice();
+        this.applyBoardFrame();
         this.redraw();
     }
 
@@ -107,6 +115,8 @@ export class GameplayView extends Component {
             return;
         }
         this.installSolidSpriteFrame();
+        // configureAssets 可能早于组件 onLoad 调用，此处在节点完成绑定后再次应用资源。
+        this.applyBoardFrame();
         this.fitPrefabToScreen();
         this.captureDefaultCells();
         this.registerInput();
@@ -126,6 +136,8 @@ export class GameplayView extends Component {
         EventBus.clearOwner(this);
         this.solidSpriteFrame?.destroy();
         this.solidTexture?.destroy();
+        this.effectRoot?.destroy();
+        this.effectRoot = null;
         this.solidSpriteFrame = null;
         this.solidTexture = null;
     }
@@ -148,7 +160,11 @@ export class GameplayView extends Component {
         this.solidTexture = texture;
         this.solidSpriteFrame = spriteFrame;
 
-        for (const sprite of this.node.getComponentsInChildren(Sprite)) {
+        const sprites = this.node.getComponentsInChildren(Sprite);
+        for (let index = 0; index < sprites.length; index += 1) {
+            const sprite = sprites[index];
+            // 棋盘底图使用场景注入的美术资源，不参与纯色占位图替换。
+            if (sprite === this.boardFrameSprite) continue;
             sprite.spriteFrame = spriteFrame;
             sprite.type = Sprite.Type.SIMPLE;
             sprite.sizeMode = Sprite.SizeMode.CUSTOM;
@@ -165,6 +181,7 @@ export class GameplayView extends Component {
         this.messageTitleLabel = this.findComponent('MessageOverlay/MessageTitle', Label);
         this.messageBodyLabel = this.findComponent('MessageOverlay/MessageBody', Label);
         this.messageActionLabel = this.findComponent('MessageOverlay/ActionBackground/MessageAction', Label);
+        this.boardFrameSprite = this.findComponent('BoardFrame', Sprite);
         this.boardCellRoot = this.findNode('BoardGrid');
         this.previewRoot = this.findNode('PlacementPreview');
         this.trayRoot = this.findNode('TrayPieces');
@@ -172,7 +189,7 @@ export class GameplayView extends Component {
 
         if (!this.scoreLabel || !this.highScoreLabel || !this.comboLabel || !this.trayHintLabel
             || !this.messageOverlay || !this.messageTitleLabel || !this.messageBodyLabel
-            || !this.messageActionLabel || !this.boardCellRoot || !this.previewRoot
+            || !this.messageActionLabel || !this.boardFrameSprite || !this.boardCellRoot || !this.previewRoot
             || !this.trayRoot || !this.dragRoot) {
             Logger.error('GameplayView 预制件结构不完整，已停用玩法界面');
             return false;
@@ -184,6 +201,16 @@ export class GameplayView extends Component {
             return false;
         }
         return true;
+    }
+
+    /** 把场景持有的棋盘资源应用到预制件静态节点。 */
+    private applyBoardFrame(): void {
+        if (!this.boardFrameSprite || !this.boardFrame) return;
+        this.boardFrameSprite.spriteFrame = this.boardFrame;
+        // 资源已在导入配置中裁掉透明边距，简单缩放能完整保留猫爪与圆角装饰。
+        this.boardFrameSprite.type = Sprite.Type.SIMPLE;
+        this.boardFrameSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        this.boardFrameSprite.color = Color.WHITE;
     }
 
     /** 将整个 360×720 预制件统一缩放并保持屏幕正中。 */
@@ -237,11 +264,11 @@ export class GameplayView extends Component {
     }
 
     private registerEvents(): void {
-        EventBus.on(GameEvents.StateChanged, this.redraw, this);
+        EventBus.on<GameStateChange>(GameEvents.StateChanged, this.onStateChanged, this);
         EventBus.on<PiecePlacedEvent>(GameplayEvents.PiecePlaced, this.onPiecePlaced, this);
         EventBus.on<PlacementRejectedEvent>(GameplayEvents.PlacementRejected, this.onPlacementRejected, this);
-        EventBus.on(GameplayEvents.MoveResolved, this.redraw, this);
-        EventBus.on(GameplayEvents.ScoreChanged, this.redraw, this);
+        EventBus.on<MoveResolvedEvent>(GameplayEvents.MoveResolved, this.onMoveResolved, this);
+        EventBus.on<ScoreChangedEvent>(GameplayEvents.ScoreChanged, this.onScoreChanged, this);
         EventBus.on(GameplayEvents.TrayRefilled, this.redraw, this);
         EventBus.on(GameplayEvents.GameOver, this.redraw, this);
     }
@@ -366,8 +393,10 @@ export class GameplayView extends Component {
         if (!this.scoreLabel || !this.highScoreLabel || !this.comboLabel) return;
         const state = GameManager.instance.currentState;
         const score = GameplayModule.instance.getScore();
+        // 单局存在时直接使用内存数据，避免拖拽重绘期间频繁访问 localStorage。
+        const highScore = score?.highScore ?? GameplayModule.instance.getPlayerRecord().highScore;
         this.scoreLabel.string = `分数\n${score?.score ?? 0}`;
-        this.highScoreLabel.string = `最高\n${score?.highScore ?? 0}`;
+        this.highScoreLabel.string = `最高\n${highScore}`;
         this.comboLabel.string = `连击\n×${score?.combo ?? 0}`;
 
         if (state === GameState.Menu) {
@@ -522,10 +551,105 @@ export class GameplayView extends Component {
         }
     };
 
+    /** 新对局重置表现层计分基线，暂停恢复时保持当前分数。 */
+    private onStateChanged = (change: GameStateChange): void => {
+        if (change.current === GameState.Playing
+            && (change.previous === GameState.Menu || change.previous === GameState.GameOver)) {
+            this.lastPresentedScore = 0;
+        }
+        this.redraw();
+    };
+
+    /** 使用被清除格的快照播放消散动画，避免规则层立即清空造成视觉跳变。 */
+    private onMoveResolved = (event: MoveResolvedEvent): void => {
+        this.redraw();
+        if (event.lineCount <= 0 || event.clearedCells.length === 0) return;
+
+        const root = this.getEffectRoot();
+        for (let index = 0; index < event.clearedCells.length; index += 1) {
+            const cell = event.clearedCells[index];
+            const node = this.createSpriteNode(root, `ClearCell_${cell.index}`);
+            const row = Math.floor(cell.index / BoardConfig.width);
+            const column = cell.index % BoardConfig.width;
+            node.setPosition(
+                BOARD_LEFT + (column + 0.5) * BOARD_CELL_SIZE,
+                BOARD_TOP - (row + 0.5) * BOARD_CELL_SIZE,
+            );
+            node.setScale(1, 1, 1);
+            node.getComponent(Sprite)!.spriteFrame = this.frameAt(this.occupiedCellFrames, cell.visualStyle);
+            node.getComponent(Sprite)!.color = Color.WHITE;
+            node.getComponent(UIOpacity)!.opacity = 255;
+            this.setSpriteSize(node, BOARD_CELL_SIZE * 1.04);
+
+            const delay = index * 0.012;
+            tween(node)
+                .delay(delay)
+                .to(0.08, { scale: new Vec3(1.18, 1.18, 1) }, { easing: 'quadOut' })
+                .to(0.16, { scale: new Vec3(0.08, 0.08, 1) }, { easing: 'quadIn' })
+                .call(() => node.destroy())
+                .start();
+            tween(node.getComponent(UIOpacity)!)
+                .delay(delay + 0.06)
+                .to(0.18, { opacity: 0 })
+                .start();
+        }
+    };
+
+    /** 展示本次得分增量，并在连击增长时强调连击卡片。 */
+    private onScoreChanged = (event: ScoreChangedEvent): void => {
+        const gainedScore = Math.max(0, event.score - this.lastPresentedScore);
+        this.lastPresentedScore = event.score;
+        this.redraw();
+        if (gainedScore > 0) this.showScoreGain(gainedScore);
+        if (event.combo > 0 && this.comboLabel) {
+            const comboNode = this.comboLabel.node;
+            Tween.stopAllByTarget(comboNode);
+            comboNode.setScale(1, 1, 1);
+            tween(comboNode)
+                .to(0.1, { scale: new Vec3(1.18, 1.18, 1) }, { easing: 'backOut' })
+                .to(0.12, { scale: Vec3.ONE })
+                .start();
+        }
+    };
+
+    /** 创建短暂的分数飘字；节点数量由每次结算动态决定。 */
+    private showScoreGain(score: number): void {
+        const node = new Node('ScoreGain');
+        node.layer = Layers.Enum.UI_2D;
+        node.addComponent(UITransform).setContentSize(180, 40);
+        const label = node.addComponent(Label);
+        label.string = `+${score}`;
+        label.fontSize = 24;
+        label.lineHeight = 28;
+        label.color = new Color(239, 113, 73, 255);
+        label.horizontalAlign = Label.HorizontalAlign.CENTER;
+        label.verticalAlign = Label.VerticalAlign.CENTER;
+        const opacity = node.addComponent(UIOpacity);
+        this.getEffectRoot().addChild(node);
+        node.setPosition(0, 58);
+
+        tween(node)
+            .by(0.55, { position: new Vec3(0, 44, 0) }, { easing: 'quadOut' })
+            .call(() => node.destroy())
+            .start();
+        tween(opacity).delay(0.25).to(0.3, { opacity: 0 }).start();
+    }
+
     private onPlacementRejected = (_event: PlacementRejectedEvent): void => {
         this.resetDrag();
         this.redraw();
     };
+
+    /** 获取运行时特效容器；消除与飘字结束后会自行销毁子节点。 */
+    private getEffectRoot(): Node {
+        if (this.effectRoot?.isValid) return this.effectRoot;
+        const root = new Node('GameplayEffects');
+        root.layer = Layers.Enum.UI_2D;
+        root.addComponent(UITransform);
+        this.node.addChild(root);
+        this.effectRoot = root;
+        return root;
+    }
 
     private createSpriteNode(root: Node, name: string): Node {
         const node = new Node(name);

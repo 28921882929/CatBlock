@@ -9,6 +9,7 @@ import { TrayComponentKey } from '../assets/scripts/game/ecs/components/TrayComp
 import { Query } from '../assets/scripts/game/ecs/core/Query';
 import type { ComponentKey } from '../assets/scripts/game/ecs/core/Entity';
 import { World } from '../assets/scripts/game/ecs/core/World';
+import { GameplayEvents, type ScoreChangedEvent } from '../assets/scripts/game/ecs/events/GameplayEvents';
 import { LineClearSystem } from '../assets/scripts/game/ecs/systems/LineClearSystem';
 import { LineDetectionSystem } from '../assets/scripts/game/ecs/systems/LineDetectionSystem';
 import { PlacementSystem } from '../assets/scripts/game/ecs/systems/PlacementSystem';
@@ -74,6 +75,7 @@ function testLineDetectionAndClear(): void {
         board.contentType[index] = CellContentType.Normal;
     }
     board.terrainType[0] = 9;
+    board.visualStyles[0] = 6;
 
     const completed = findCompletedLines(board);
     assert(completed.rows.length === 1 && completed.rows[0] === 0, 'top row should be complete');
@@ -82,6 +84,7 @@ function testLineDetectionAndClear(): void {
 
     const cleared = clearCells(board, completed.indices);
     assert(cleared.length === 15, 'all occupied crossing cells should be captured');
+    assert(cleared[0].visualStyle === 6, 'cleared snapshot should retain its visual style for effects');
     assert(board.occupied[0] === 0, 'cleared content should become empty');
     assert(board.terrainType[0] === 9, 'terrain layer should survive content clearing');
 }
@@ -162,10 +165,12 @@ function testSystemPipeline(): void {
 
     world.update(0);
     const score = world.get(sessionEntity, ScoreComponentKey);
+    const scoreEvents = world.events.read<ScoreChangedEvent>(GameplayEvents.ScoreChanged);
     assert(board.occupied[0] === 0, 'completed row should be cleared in the same frame');
     assert(board.visualStyles[0] === 0, 'cleared cells should reset their visual style');
     assert(score?.score === 11, 'single placement and one cleared line should award 11 points');
     assert(score?.combo === 1, 'successful clear should start combo at one');
+    assert(scoreEvents[0]?.highScore === 11, 'score event should expose the new high score for persistence');
     assert(!world.isAlive(pieceEntity), 'placed piece entity should be destroyed after commit');
     world.destroy();
 }

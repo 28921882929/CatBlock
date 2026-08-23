@@ -37,11 +37,11 @@ export class App extends Component {
     /** 当前有效入口实例，用于阻止切换场景时重复初始化。 */
     private static current: App | null = null;
 
-    /** 棋盘装饰底图，由主场景持有以确保构建时收集依赖。 */
+    /** 猫爪棋盘装饰图，由主场景持有以确保构建时收集依赖。 */
     @property(SpriteFrame)
     public boardFrame: SpriteFrame | null = null;
 
-    /** 兼容旧资源字段；空位由棋盘底图显示，不会铺设这些方块图。 */
+    /** 兼容旧资源字段；当前空位样式由玩法预制件统一配置。 */
     @property([SpriteFrame])
     public emptyCellFrames: SpriteFrame[] = [];
 
