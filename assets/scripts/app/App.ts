@@ -1,4 +1,18 @@
-import { _decorator, Camera, Canvas, Component, game, Layers, Node, profiler, SpriteFrame, UITransform } from 'cc';
+import {
+    _decorator,
+    Camera,
+    Canvas,
+    Color,
+    Component,
+    game,
+    instantiate,
+    Layers,
+    Node,
+    Prefab,
+    profiler,
+    SpriteFrame,
+    UITransform,
+} from 'cc';
 import { AudioManager } from '../core/AudioManager';
 import { EventBus } from '../core/EventBus';
 import { GameManager } from '../core/GameManager';
@@ -34,6 +48,10 @@ export class App extends Component {
     /** 十种猫箱格资源，数组顺序与空箱格保持一致。 */
     @property([SpriteFrame])
     public occupiedCellFrames: SpriteFrame[] = [];
+
+    /** 玩法主界面预制件，层级、尺寸、底色和字号均可在编辑器中直接调整。 */
+    @property(Prefab)
+    public gameplayViewPrefab: Prefab | null = null;
 
     /** 初始化持久节点、UI、音频和游戏状态。 */
     protected onLoad(): void {
@@ -93,6 +111,7 @@ export class App extends Component {
         camera.priority = 1;
         camera.visibility = Layers.Enum.UI_2D;
         camera.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+        camera.clearColor = new Color(255, 247, 234, 255);
 
         const canvas = uiRoot.addComponent(Canvas);
         canvas.alignCanvasWithScreen = true;
@@ -102,9 +121,13 @@ export class App extends Component {
 
     /** 创建玩法表现层，并注入由场景持有的棋盘资源。 */
     private createGameplayView(uiRoot: Node): void {
-        const gameplayNode = new Node('GameplayView');
-        gameplayNode.layer = Layers.Enum.UI_2D;
+        if (!this.gameplayViewPrefab) {
+            throw new Error('Main.scene App.gameplayViewPrefab is not configured');
+        }
+        const gameplayNode = instantiate(this.gameplayViewPrefab);
         uiRoot.addChild(gameplayNode);
+        // 预制件保持为纯 UI 层级，挂入 Canvas 后再添加逻辑组件，
+        // 避免自定义组件在反序列化阶段抛错导致整个预制件实例化失败。
         const gameplayView = gameplayNode.addComponent(GameplayView);
         gameplayView.configureAssets({
             board: this.boardFrame,

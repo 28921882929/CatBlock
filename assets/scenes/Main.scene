@@ -81,6 +81,10 @@
       { "__uuid__": "aed20cb4-7604-4bfb-adea-d91446cf3282@f9941", "__expectedType__": "cc.SpriteFrame" },
       { "__uuid__": "daa36bc1-e62b-4b82-964c-20a71c8bf5aa@f9941", "__expectedType__": "cc.SpriteFrame" }
     ],
+    "gameplayViewPrefab": {
+      "__uuid__": "a4e3d7d9-5e6f-4e31-9ef8-2e768ec62f16",
+      "__expectedType__": "cc.Prefab"
+    },
     "_id": "70vWzNGfhL0Z7xaONKXwVg"
   },
   {

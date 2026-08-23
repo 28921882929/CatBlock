@@ -4,18 +4,16 @@ import {
     Component,
     EventMouse,
     EventTouch,
-    Graphics,
-    HorizontalTextAlignment,
     Label,
     Layers,
     Node,
     Sprite,
     SpriteFrame,
+    Texture2D,
     Tween,
     UIOpacity,
     UITransform,
     Vec3,
-    VerticalTextAlignment,
     view,
     tween,
 } from 'cc';
@@ -35,7 +33,18 @@ import { canPlace } from '../logic/BoardRules';
 
 const { ccclass } = _decorator;
 
-/** 待选方块在当前全屏节点内的触摸区域。 */
+/** 预制件使用固定设计尺寸；运行时只整体等比缩放，避免局部尺寸漂移。 */
+const DESIGN_WIDTH = 360;
+const DESIGN_HEIGHT = 720;
+const BOARD_CELL_SIZE = 40;
+const BOARD_LEFT = -160;
+const BOARD_TOP = 198;
+const TRAY_CELL_SIZE = 31;
+const TRAY_SLOT_WIDTH = 104;
+const TRAY_SLOT_HEIGHT = 100;
+const TRAY_SLOT_Y = -218;
+const TRAY_SLOT_STEP = 116;
+
 interface TrayPieceBounds {
     readonly entity: Entity;
     readonly left: number;
@@ -44,38 +53,35 @@ interface TrayPieceBounds {
     readonly top: number;
 }
 
-/** 当前正在驱动拖拽的输入来源，避免浏览器合成事件重复提交。 */
 type PointerSource = 'touch' | 'mouse';
 
-/** 由入口组件注入的棋盘美术资源。 */
 export interface GameplayArtAssets {
     readonly board: SpriteFrame | null;
-    /** 旧版空箱资源保留兼容，但不会铺在棋盘空位上。 */
     readonly emptyCells: readonly SpriteFrame[];
-    /** 方块皮肤资源，用于待选区、拖拽中和已落棋盘格。 */
     readonly occupiedCells: readonly SpriteFrame[];
 }
 
 /**
- * 基础玩法表现与棋盘输入组件。
- * ECS 只提供棋盘状态，本组件负责资源显示、拖拽命中、吸附预览和操作反馈。
+ * GameplayView.prefab 的数据绑定与交互组件。
+ * 界面结构、位置、底色和字号全部由预制件控制；本组件只同步玩法数据和输入状态。
  */
 @ccclass('GameplayView')
 export class GameplayView extends Component {
-    private backgroundGraphics: Graphics | null = null;
-    private statusLabel: Label | null = null;
-    private boardArtSprite: Sprite | null = null;
+    private scoreLabel: Label | null = null;
+    private highScoreLabel: Label | null = null;
+    private comboLabel: Label | null = null;
+    private trayHintLabel: Label | null = null;
+    private messageOverlay: Node | null = null;
+    private messageTitleLabel: Label | null = null;
+    private messageBodyLabel: Label | null = null;
+    private messageActionLabel: Label | null = null;
     private boardCellRoot: Node | null = null;
     private previewRoot: Node | null = null;
     private trayRoot: Node | null = null;
     private dragRoot: Node | null = null;
     private boardCellNodes: Node[] = [];
-    private width = 0;
-    private height = 0;
-    private cellSize = 0;
-    private boardLeft = 0;
-    private boardTop = 0;
-    private trayY = 0;
+    private defaultCellFrames: Array<SpriteFrame | null> = [];
+    private defaultCellColors: Color[] = [];
     private trayBounds: TrayPieceBounds[] = [];
     private draggingEntity: Entity | null = null;
     private dragPosition = new Vec3();
@@ -83,39 +89,21 @@ export class GameplayView extends Component {
     private previewColumn = -1;
     private previewValid = false;
     private activePointer: PointerSource | null = null;
-    private boardFrame: SpriteFrame | null = null;
+    private viewScale = 1;
     private occupiedCellFrames: readonly SpriteFrame[] = [];
+    private solidTexture: Texture2D | null = null;
+    private solidSpriteFrame: SpriteFrame | null = null;
 
-    /** 注入场景持有的资源引用，并立即刷新全部棋盘节点。 */
     public configureAssets(assets: GameplayArtAssets): void {
-        this.boardFrame = assets.board;
         this.occupiedCellFrames = assets.occupiedCells.slice();
-        if (this.boardArtSprite) this.boardArtSprite.spriteFrame = this.boardFrame;
         this.redraw();
     }
 
     protected onLoad(): void {
-        const visibleSize = view.getVisibleSize();
-        this.width = visibleSize.width;
-        this.height = visibleSize.height;
-        // 以棋盘九宫格外框反推逻辑格尺寸，保证竖屏手机不发生横向溢出。
-        const maxOuterWidth = this.width - 24;
-        const maxOuterHeight = this.height - 250;
-        this.cellSize = Math.floor(Math.min(
-            // 九宫格 Sprite 的可见外框约占自定义尺寸的 66%，预留该比例避免竖屏溢出。
-            maxOuterWidth / (BoardConfig.width * 1.46),
-            maxOuterHeight / (BoardConfig.height * 1.2),
-        ));
-        this.boardLeft = -this.cellSize * BoardConfig.width * 0.5;
-        this.boardTop = this.height * 0.5 - 135;
-        this.trayY = this.boardTop - this.cellSize * BoardConfig.height - 82;
-
-        const transform = this.node.addComponent(UITransform);
-        transform.setContentSize(this.width, this.height);
-        this.backgroundGraphics = this.node.addComponent(Graphics);
-        this.createRenderLayers();
-        this.createStatusLabel();
-        this.createBoardCells();
+        this.bindPrefabNodes();
+        this.installSolidSpriteFrame();
+        this.fitPrefabToScreen();
+        this.captureDefaultCells();
         this.registerInput();
         this.registerEvents();
         this.redraw();
@@ -131,70 +119,92 @@ export class GameplayView extends Component {
         this.node.off(Node.EventType.MOUSE_UP, this.onMouseUp, this);
         this.node.off(Node.EventType.MOUSE_LEAVE, this.onMouseLeave, this);
         EventBus.clearOwner(this);
+        this.solidSpriteFrame?.destroy();
+        this.solidTexture?.destroy();
+        this.solidSpriteFrame = null;
+        this.solidTexture = null;
     }
 
-    /** 创建按渲染顺序排列的棋盘、预览、待选和拖拽层。 */
-    private createRenderLayers(): void {
-        const boardArtNode = this.createLayerNode('BoardArtwork');
-        const boardArtTransform = boardArtNode.getComponent(UITransform);
-        const boardSize = this.cellSize * BoardConfig.width;
-        boardArtTransform?.setContentSize(boardSize * 2.2, boardSize * 2.4);
-        boardArtNode.setPosition(0, this.boardTop - boardSize * 0.5);
-        this.boardArtSprite = boardArtNode.addComponent(Sprite);
-        // SpriteFrame 的 borderTop/Bottom/Left/Right 定义九宫格固定边框。
-        this.boardArtSprite.type = Sprite.Type.SLICED;
-        this.boardArtSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+    /**
+     * 预制件中的 Sprite 只负责保存尺寸、颜色和层级。统一换成本地生成的
+     * 1×1 白色纹理，避免编辑器内置 SpriteFrame 在 Web/原生构建中丢失。
+     */
+    private installSolidSpriteFrame(): void {
+        const texture = new Texture2D('GameplaySolidTexture');
+        texture.reset({
+            width: 1,
+            height: 1,
+            format: Texture2D.PixelFormat.RGBA8888,
+        });
+        texture.uploadData(new Uint8Array([255, 255, 255, 255]));
 
-        this.boardCellRoot = this.createLayerNode('BoardCells');
-        this.previewRoot = this.createLayerNode('PlacementPreview');
-        this.trayRoot = this.createLayerNode('TrayPieces');
-        this.dragRoot = this.createLayerNode('DraggingPiece');
-    }
+        const spriteFrame = new SpriteFrame('GameplaySolidSpriteFrame');
+        spriteFrame.texture = texture;
+        this.solidTexture = texture;
+        this.solidSpriteFrame = spriteFrame;
 
-    /** 创建全屏坐标系下的普通 UI 渲染层。 */
-    private createLayerNode(name: string): Node {
-        const layer = new Node(name);
-        layer.layer = Layers.Enum.UI_2D;
-        layer.addComponent(UITransform);
-        this.node.addChild(layer);
-        return layer;
-    }
-
-    /** 预创建 8×8 棋盘格节点，拖动期间只更新资源和显隐。 */
-    private createBoardCells(): void {
-        if (!this.boardCellRoot) return;
-        const cellCount = BoardConfig.width * BoardConfig.height;
-        for (let index = 0; index < cellCount; index += 1) {
-            const node = this.createSpriteNode(this.boardCellRoot, `Cell_${index}`);
-            const row = Math.floor(index / BoardConfig.width);
-            const column = index % BoardConfig.width;
-            node.setPosition(
-                this.boardLeft + (column + 0.5) * this.cellSize,
-                this.boardTop - (row + 0.5) * this.cellSize,
-            );
-            this.setSpriteSize(node, this.cellSize * 1.04);
-            this.boardCellNodes.push(node);
+        for (const sprite of this.node.getComponentsInChildren(Sprite)) {
+            sprite.spriteFrame = spriteFrame;
+            sprite.type = Sprite.Type.SIMPLE;
+            sprite.sizeMode = Sprite.SizeMode.CUSTOM;
         }
     }
 
-    /** 创建顶部状态文字。 */
-    private createStatusLabel(): void {
-        const labelNode = new Node('StatusLabel');
-        labelNode.layer = Layers.Enum.UI_2D;
-        labelNode.setPosition(0, this.height * 0.5 - 38);
-        this.node.addChild(labelNode);
-        const transform = labelNode.addComponent(UITransform);
-        transform.setContentSize(this.width - 24, 70);
-        const label = labelNode.addComponent(Label);
-        label.fontSize = 24;
-        label.lineHeight = 30;
-        label.color = new Color(92, 55, 32, 255);
-        label.horizontalAlign = HorizontalTextAlignment.CENTER;
-        label.verticalAlign = VerticalTextAlignment.CENTER;
-        this.statusLabel = label;
+    /** 按名称绑定预制件节点；缺失时直接报出具体路径。 */
+    private bindPrefabNodes(): void {
+        this.scoreLabel = this.requireComponent('ScoreCard/ScoreLabel', Label);
+        this.highScoreLabel = this.requireComponent('HighScoreCard/HighScoreLabel', Label);
+        this.comboLabel = this.requireComponent('ComboCard/ComboLabel', Label);
+        this.trayHintLabel = this.requireComponent('TrayHint', Label);
+        this.messageOverlay = this.requireNode('MessageOverlay');
+        this.messageTitleLabel = this.requireComponent('MessageOverlay/MessageTitle', Label);
+        this.messageBodyLabel = this.requireComponent('MessageOverlay/MessageBody', Label);
+        this.messageActionLabel = this.requireComponent('MessageOverlay/ActionBackground/MessageAction', Label);
+        this.boardCellRoot = this.requireNode('BoardGrid');
+        this.previewRoot = this.requireNode('PlacementPreview');
+        this.trayRoot = this.requireNode('TrayPieces');
+        this.dragRoot = this.requireNode('DraggingPiece');
+        this.boardCellNodes = this.boardCellRoot.children.slice(0, BoardConfig.width * BoardConfig.height);
+        if (this.boardCellNodes.length !== BoardConfig.width * BoardConfig.height) {
+            throw new Error(`GameplayView.prefab BoardGrid must contain ${BoardConfig.width * BoardConfig.height} cells`);
+        }
     }
 
-    /** 注册全屏触摸输入。 */
+    /** 将整个 360×720 预制件统一缩放并保持屏幕正中。 */
+    private fitPrefabToScreen(): void {
+        const visibleSize = view.getVisibleSize();
+        this.viewScale = Math.min(
+            (visibleSize.width - 24) / DESIGN_WIDTH,
+            (visibleSize.height - 24) / DESIGN_HEIGHT,
+        );
+        this.node.setPosition(0, 0);
+        this.node.setScale(this.viewScale, this.viewScale, 1);
+    }
+
+    /** 保存预制件内 64 个空格的外观，空位恢复时不会再由代码重画。 */
+    private captureDefaultCells(): void {
+        this.defaultCellFrames = [];
+        this.defaultCellColors = [];
+        for (const node of this.boardCellNodes) {
+            const sprite = node.getComponent(Sprite);
+            this.defaultCellFrames.push(sprite?.spriteFrame ?? null);
+            this.defaultCellColors.push(sprite?.color.clone() ?? Color.WHITE.clone());
+        }
+    }
+
+    private requireNode(path: string): Node {
+        let current: Node | null = this.node;
+        for (const name of path.split('/')) current = current?.getChildByName(name) ?? null;
+        if (!current) throw new Error(`GameplayView.prefab is missing node: ${path}`);
+        return current;
+    }
+
+    private requireComponent<T extends Component>(path: string, type: new (...args: never[]) => T): T {
+        const component = this.requireNode(path).getComponent(type);
+        if (!component) throw new Error(`GameplayView.prefab node ${path} is missing ${type.name}`);
+        return component;
+    }
+
     private registerInput(): void {
         this.node.on(Node.EventType.TOUCH_START, this.onTouchStart, this);
         this.node.on(Node.EventType.TOUCH_MOVE, this.onTouchMove, this);
@@ -206,7 +216,6 @@ export class GameplayView extends Component {
         this.node.on(Node.EventType.MOUSE_LEAVE, this.onMouseLeave, this);
     }
 
-    /** 监听会改变棋盘或待选区显示的数据事件。 */
     private registerEvents(): void {
         EventBus.on(GameEvents.StateChanged, this.redraw, this);
         EventBus.on<PiecePlacedEvent>(GameplayEvents.PiecePlaced, this.onPiecePlaced, this);
@@ -217,61 +226,48 @@ export class GameplayView extends Component {
         EventBus.on(GameplayEvents.GameOver, this.redraw, this);
     }
 
-    /** 点击菜单或结算画面开始新游戏，否则尝试选中待放方块。 */
     private onTouchStart(event: EventTouch): void {
         if (this.activePointer !== null) return;
         this.activePointer = 'touch';
-        const position = this.pointerToLocal(event);
-        this.beginPointer(position);
+        this.beginPointer(this.pointerToLocal(event));
     }
 
-    /** 手指移动时持续更新拖拽位置。 */
     private onTouchMove(event: EventTouch): void {
         if (this.activePointer !== 'touch') return;
-        const position = this.pointerToLocal(event);
-        this.movePointer(position);
+        this.movePointer(this.pointerToLocal(event));
     }
 
-    /** 手指抬起时完成本次放置尝试。 */
     private onTouchEnd(): void {
         if (this.activePointer !== 'touch') return;
         this.endPointer();
     }
 
-    /** 触摸被系统取消时让方块返回待选区。 */
     private onTouchCancel(): void {
         if (this.activePointer !== 'touch') return;
         this.cancelPointer();
     }
 
-    /** 鼠标左键按下时复用与触摸相同的选中流程。 */
     private onMouseDown(event: EventMouse): void {
         if (event.getButton() !== EventMouse.BUTTON_LEFT || this.activePointer !== null) return;
         this.activePointer = 'mouse';
-        const position = this.pointerToLocal(event);
-        this.beginPointer(position);
+        this.beginPointer(this.pointerToLocal(event));
     }
 
-    /** 只有鼠标按下并选中方块后才处理移动，普通悬停不会触发重绘。 */
     private onMouseMove(event: EventMouse): void {
         if (this.activePointer !== 'mouse') return;
-        const position = this.pointerToLocal(event);
-        this.movePointer(position);
+        this.movePointer(this.pointerToLocal(event));
     }
 
-    /** 鼠标左键抬起时完成本次放置尝试。 */
     private onMouseUp(event: EventMouse): void {
         if (event.getButton() !== EventMouse.BUTTON_LEFT || this.activePointer !== 'mouse') return;
         this.endPointer();
     }
 
-    /** 鼠标拖出游戏区域时取消拖拽，避免残留悬空方块。 */
     private onMouseLeave(): void {
         if (this.activePointer !== 'mouse') return;
         this.cancelPointer();
     }
 
-    /** 根据按下位置处理开始游戏或选中待选方块。 */
     private beginPointer(position: Vec3): void {
         const state = GameManager.instance.currentState;
         if (state === GameState.Menu || state === GameState.GameOver) {
@@ -283,8 +279,7 @@ export class GameplayView extends Component {
         }
         if (state !== GameState.Playing) return;
 
-        for (let index = 0; index < this.trayBounds.length; index += 1) {
-            const bounds = this.trayBounds[index];
+        for (const bounds of this.trayBounds) {
             if (position.x < bounds.left || position.x > bounds.right) continue;
             if (position.y < bounds.bottom || position.y > bounds.top) continue;
             this.draggingEntity = bounds.entity;
@@ -295,7 +290,6 @@ export class GameplayView extends Component {
         }
     }
 
-    /** 更新拖动位置和棋盘吸附预览。 */
     private movePointer(position: Vec3): void {
         if (this.draggingEntity === null) return;
         this.updateDragPosition(position);
@@ -303,34 +297,25 @@ export class GameplayView extends Component {
         this.redraw();
     }
 
-    /** 松手时只提交合法预览，非法落点会立即返回待选区。 */
     private endPointer(): void {
         if (this.draggingEntity !== null && this.previewValid) {
-            GameplayModule.instance.requestPlacement(
-                this.draggingEntity,
-                this.previewRow,
-                this.previewColumn,
-            );
+            GameplayModule.instance.requestPlacement(this.draggingEntity, this.previewRow, this.previewColumn);
         }
         this.activePointer = null;
         this.resetDrag();
         this.redraw();
     }
 
-    /** 取消当前指针操作并恢复待选区。 */
     private cancelPointer(): void {
         this.activePointer = null;
         this.resetDrag();
         this.redraw();
     }
 
-    /** 让拖拽方块保持在手指上方，避免手指遮挡实际落点。 */
-    private updateDragPosition(touchPosition: Vec3): void {
-        const lift = Math.max(72, this.cellSize * 1.35);
-        this.dragPosition.set(touchPosition.x, touchPosition.y + lift, 0);
+    private updateDragPosition(position: Vec3): void {
+        this.dragPosition.set(position.x, position.y + 56, 0);
     }
 
-    /** 根据拖动位置计算棋盘原点，并同步合法性。 */
     private updatePreview(): void {
         this.previewRow = -1;
         this.previewColumn = -1;
@@ -341,10 +326,10 @@ export class GameplayView extends Component {
         const piece = GameplayModule.instance.getPiece(this.draggingEntity);
         if (!board || !piece) return;
         const bounds = this.pieceBounds(piece.cells);
-        const originX = this.dragPosition.x - bounds.width * this.cellSize * 0.5;
-        const originY = this.dragPosition.y + bounds.height * this.cellSize * 0.5;
-        const column = Math.round((originX - this.boardLeft) / this.cellSize);
-        const row = Math.round((this.boardTop - originY) / this.cellSize);
+        const originX = this.dragPosition.x - bounds.width * BOARD_CELL_SIZE * 0.5;
+        const originY = this.dragPosition.y + bounds.height * BOARD_CELL_SIZE * 0.5;
+        const column = Math.round((originX - BOARD_LEFT) / BOARD_CELL_SIZE);
+        const row = Math.round((BOARD_TOP - originY) / BOARD_CELL_SIZE);
         if (!this.isNearBoard(row, column, bounds.width, bounds.height)) return;
 
         this.previewRow = row;
@@ -352,22 +337,25 @@ export class GameplayView extends Component {
         this.previewValid = canPlace(board, piece, row, column);
     }
 
-    /** 过滤离棋盘过远的拖拽位置，避免在待选区显示无意义的红色预览。 */
     private isNearBoard(row: number, column: number, width: number, height: number): boolean {
         return row > -height && row < BoardConfig.height
             && column > -width && column < BoardConfig.width;
     }
 
-    /** 绘制当前完整游戏状态。 */
     private redraw = (): void => {
-        if (!this.backgroundGraphics || !this.statusLabel) return;
-        this.drawBackground();
-        if (this.boardArtSprite) this.boardArtSprite.spriteFrame = this.boardFrame;
-
+        if (!this.scoreLabel || !this.highScoreLabel || !this.comboLabel) return;
         const state = GameManager.instance.currentState;
         const score = GameplayModule.instance.getScore();
+        this.scoreLabel.string = `分数\n${score?.score ?? 0}`;
+        this.highScoreLabel.string = `最高\n${score?.highScore ?? 0}`;
+        this.comboLabel.string = `连击\n×${score?.combo ?? 0}`;
+
         if (state === GameState.Menu) {
-            this.statusLabel.string = 'CatBlock\n点击任意位置开始';
+            if (this.messageOverlay) this.messageOverlay.active = true;
+            if (this.messageTitleLabel) this.messageTitleLabel.string = '猫咪新居';
+            if (this.messageBodyLabel) this.messageBodyLabel.string = '把猫箱放进棋盘\n填满整行或整列即可消除';
+            if (this.messageActionLabel) this.messageActionLabel.string = '点击任意位置开始';
+            if (this.trayHintLabel) this.trayHintLabel.node.active = false;
             this.syncBoard(null);
             this.hidePooledSprites(this.previewRoot);
             this.hidePooledSprites(this.trayRoot);
@@ -375,107 +363,107 @@ export class GameplayView extends Component {
             return;
         }
 
-        this.statusLabel.string = state === GameState.GameOver
-            ? `游戏结束  分数 ${score?.score ?? 0}  最高 ${score?.highScore ?? 0}\n点击重新开始`
-            : `分数 ${score?.score ?? 0}   最高 ${score?.highScore ?? 0}   连击 ${score?.combo ?? 0}`;
+        if (this.trayHintLabel) this.trayHintLabel.node.active = state === GameState.Playing;
+        if (this.messageOverlay) this.messageOverlay.active = state === GameState.GameOver;
+        if (state === GameState.GameOver) {
+            if (this.messageTitleLabel) this.messageTitleLabel.string = '本局结束';
+            if (this.messageBodyLabel) {
+                this.messageBodyLabel.string = `得分  ${score?.score ?? 0}    最高  ${score?.highScore ?? 0}\n小猫们已经等着下一局啦`;
+            }
+            if (this.messageActionLabel) this.messageActionLabel.string = '再玩一局';
+        }
         this.syncBoard(GameplayModule.instance.getBoard());
         this.syncTray();
         this.syncPreview();
         this.syncDraggingPiece();
     };
 
-    /** 绘制暖色全屏背景。 */
-    private drawBackground(): void {
-        if (!this.backgroundGraphics) return;
-        this.backgroundGraphics.clear();
-        this.backgroundGraphics.fillColor = new Color(255, 244, 224, 255);
-        this.backgroundGraphics.rect(-this.width * 0.5, -this.height * 0.5, this.width, this.height);
-        this.backgroundGraphics.fill();
-    }
-
-    /** 将 ECS 棋盘状态同步到常驻方块节点；空位由棋盘底图自身显示。 */
+    /** 将棋盘数据写入预制件中的 64 个格子，空格恢复预制件外观。 */
     private syncBoard(board: ReturnType<GameplayModule['getBoard']>): void {
         for (let index = 0; index < this.boardCellNodes.length; index += 1) {
+            const node = this.boardCellNodes[index];
+            const sprite = node.getComponent(Sprite);
+            if (!sprite) continue;
             const occupied = board ? board.occupied[index] !== 0 : false;
-            const style = occupied && board ? board.visualStyles[index] : index;
-            this.setSpriteFrame(
-                this.boardCellNodes[index],
-                occupied ? this.frameAt(this.occupiedCellFrames, style) : null,
-            );
+            if (occupied && board) {
+                sprite.spriteFrame = this.frameAt(this.occupiedCellFrames, board.visualStyles[index]);
+                sprite.color = Color.WHITE;
+                this.setSpriteSize(node, 42);
+            } else {
+                sprite.spriteFrame = this.defaultCellFrames[index] ?? null;
+                sprite.color = this.defaultCellColors[index] ?? Color.WHITE;
+                this.setSpriteSize(node, 38);
+            }
+            node.active = true;
         }
     }
 
-    /** 同步三个待选槽位，并记录更宽松的整槽触摸范围。 */
+    /** 普通形状使用约 78% 棋盘格尺寸，只有超长形状才按槽位自动缩小。 */
     private syncTray(): void {
         const tray = GameplayModule.instance.getTray();
         this.trayBounds = [];
         this.hidePooledSprites(this.trayRoot);
         if (!tray || !this.trayRoot) return;
-        const trayCellSize = Math.max(20, Math.floor(this.cellSize * 0.5));
         let spriteIndex = 0;
 
-        for (let index = 0; index < tray.pieceEntities.length; index += 1) {
-            const entity = tray.pieceEntities[index];
+        for (const entity of tray.pieceEntities) {
             const piece = GameplayModule.instance.getPiece(entity);
             if (!piece || entity === this.draggingEntity) continue;
             const bounds = this.pieceBounds(piece.cells);
-            const slotX = -this.width * 0.5 + this.width * (piece.trayIndex + 1) / 4;
-            const left = slotX - bounds.width * trayCellSize * 0.5;
-            const top = this.trayY + bounds.height * trayCellSize * 0.5;
-            spriteIndex = this.syncPieceSprites(
-                this.trayRoot,
-                spriteIndex,
-                piece,
-                left,
-                top,
-                trayCellSize,
-                255,
-                Color.WHITE,
+            const size = Math.min(
+                TRAY_CELL_SIZE,
+                (TRAY_SLOT_WIDTH - 10) / bounds.width,
+                (TRAY_SLOT_HEIGHT - 10) / bounds.height,
             );
-            const slotHalfWidth = this.width / 8 - 6;
+            const slotX = (piece.trayIndex - 1) * TRAY_SLOT_STEP;
+            const left = slotX - bounds.width * size * 0.5;
+            const top = TRAY_SLOT_Y + bounds.height * size * 0.5;
+            spriteIndex = this.syncPieceSprites(this.trayRoot, spriteIndex, piece, left, top, size, 255, Color.WHITE);
             this.trayBounds.push({
                 entity,
-                left: slotX - slotHalfWidth,
-                right: slotX + slotHalfWidth,
-                bottom: this.trayY - Math.max(52, trayCellSize * 1.5),
-                top: this.trayY + Math.max(52, trayCellSize * 1.5),
+                left: slotX - TRAY_SLOT_WIDTH * 0.5,
+                right: slotX + TRAY_SLOT_WIDTH * 0.5,
+                bottom: TRAY_SLOT_Y - TRAY_SLOT_HEIGHT * 0.5,
+                top: TRAY_SLOT_Y + TRAY_SLOT_HEIGHT * 0.5,
             });
         }
     }
 
-    /** 使用半透明资源格显示吸附落点，红色表示占用冲突或越界。 */
     private syncPreview(): void {
         this.hidePooledSprites(this.previewRoot);
         if (!this.previewRoot || this.draggingEntity === null || this.previewRow < 0 || this.previewColumn < 0) return;
         const piece = GameplayModule.instance.getPiece(this.draggingEntity);
         if (!piece) return;
-        const left = this.boardLeft + this.previewColumn * this.cellSize;
-        const top = this.boardTop - this.previewRow * this.cellSize;
         this.syncPieceSprites(
             this.previewRoot,
             0,
             piece,
-            left,
-            top,
-            this.cellSize,
+            BOARD_LEFT + this.previewColumn * BOARD_CELL_SIZE,
+            BOARD_TOP - this.previewRow * BOARD_CELL_SIZE,
+            BOARD_CELL_SIZE,
             this.previewValid ? 170 : 115,
             this.previewValid ? new Color(185, 255, 196, 255) : new Color(255, 118, 118, 255),
         );
     }
 
-    /** 显示正在手指上方跟随移动的原尺寸方块。 */
     private syncDraggingPiece(): void {
         this.hidePooledSprites(this.dragRoot);
         if (!this.dragRoot || this.draggingEntity === null) return;
         const piece = GameplayModule.instance.getPiece(this.draggingEntity);
         if (!piece) return;
         const bounds = this.pieceBounds(piece.cells);
-        const left = this.dragPosition.x - bounds.width * this.cellSize * 0.5;
-        const top = this.dragPosition.y + bounds.height * this.cellSize * 0.5;
-        this.syncPieceSprites(this.dragRoot, 0, piece, left, top, this.cellSize, 235, Color.WHITE);
+        this.syncPieceSprites(
+            this.dragRoot,
+            0,
+            piece,
+            this.dragPosition.x - bounds.width * BOARD_CELL_SIZE * 0.5,
+            this.dragPosition.y + bounds.height * BOARD_CELL_SIZE * 0.5,
+            BOARD_CELL_SIZE,
+            235,
+            Color.WHITE,
+        );
     }
 
-    /** 把一个方块同步到指定 Sprite 池，返回下一个可写池索引。 */
     private syncPieceSprites(
         root: Node,
         startIndex: number,
@@ -488,14 +476,10 @@ export class GameplayView extends Component {
     ): number {
         let spriteIndex = startIndex;
         const frame = this.frameAt(this.occupiedCellFrames, piece.visualStyle);
-        for (let index = 0; index < piece.cells.length; index += 1) {
-            const cell = piece.cells[index];
+        for (const cell of piece.cells) {
             const node = this.getPooledSpriteNode(root, spriteIndex);
             node.active = true;
-            node.setPosition(
-                left + (cell.column + 0.5) * size,
-                top - (cell.row + 0.5) * size,
-            );
+            node.setPosition(left + (cell.column + 0.5) * size, top - (cell.row + 0.5) * size);
             node.getComponent(Sprite)!.spriteFrame = frame;
             node.getComponent(Sprite)!.color = color;
             node.getComponent(UIOpacity)!.opacity = opacity;
@@ -505,12 +489,10 @@ export class GameplayView extends Component {
         return spriteIndex;
     }
 
-    /** 放置成功后刷新棋盘，并给新写入格播放轻量弹性反馈。 */
     private onPiecePlaced = (event: PiecePlacedEvent): void => {
         this.redraw();
         const board = GameplayModule.instance.getBoard();
-        for (let index = 0; index < event.placedIndices.length; index += 1) {
-            const boardIndex = event.placedIndices[index];
+        for (const boardIndex of event.placedIndices) {
             if (!board || board.occupied[boardIndex] === 0) continue;
             const node = this.boardCellNodes[boardIndex];
             if (!node || !node.active) continue;
@@ -520,13 +502,11 @@ export class GameplayView extends Component {
         }
     };
 
-    /** ECS 拒绝请求时恢复待选区；输入层通常会在提交前拦截非法落点。 */
     private onPlacementRejected = (_event: PlacementRejectedEvent): void => {
         this.resetDrag();
         this.redraw();
     };
 
-    /** 创建一个拥有 Sprite 与透明度控制的池节点。 */
     private createSpriteNode(root: Node, name: string): Node {
         const node = new Node(name);
         node.layer = Layers.Enum.UI_2D;
@@ -538,63 +518,46 @@ export class GameplayView extends Component {
         return node;
     }
 
-    /** 获取池中指定 Sprite，不足时按需扩容。 */
     private getPooledSpriteNode(root: Node, index: number): Node {
-        while (root.children.length <= index) {
-            this.createSpriteNode(root, `${root.name}_${root.children.length}`);
-        }
+        while (root.children.length <= index) this.createSpriteNode(root, `${root.name}_${root.children.length}`);
         return root.children[index];
     }
 
-    /** 隐藏指定层的全部池节点。 */
     private hidePooledSprites(root: Node | null): void {
         if (!root) return;
-        for (let index = 0; index < root.children.length; index += 1) {
-            root.children[index].active = false;
-        }
+        for (const child of root.children) child.active = false;
     }
 
-    /** 安全设置 SpriteFrame；资源缺失时隐藏格子，避免空白组件报错。 */
-    private setSpriteFrame(node: Node, frame: SpriteFrame | null): void {
-        const sprite = node.getComponent(Sprite);
-        if (!sprite) return;
-        sprite.spriteFrame = frame;
-        node.active = frame !== null;
-    }
-
-    /** 按索引循环选择皮肤资源。 */
     private frameAt(frames: readonly SpriteFrame[], index: number): SpriteFrame | null {
         if (frames.length === 0) return null;
         return frames[Math.abs(index) % frames.length];
     }
 
-    /** 设置自定义 Sprite 的正方形显示尺寸。 */
     private setSpriteSize(node: Node, size: number): void {
         node.getComponent(UITransform)?.setContentSize(size, size);
     }
 
-    /** 计算方块占用的局部包围尺寸。 */
     private pieceBounds(cells: readonly { row: number; column: number }[]): { width: number; height: number } {
         let maxRow = 0;
         let maxColumn = 0;
-        for (let index = 0; index < cells.length; index += 1) {
-            maxRow = Math.max(maxRow, cells[index].row);
-            maxColumn = Math.max(maxColumn, cells[index].column);
+        for (const cell of cells) {
+            maxRow = Math.max(maxRow, cell.row);
+            maxColumn = Math.max(maxColumn, cell.column);
         }
         return { width: maxColumn + 1, height: maxRow + 1 };
     }
 
-    /** 把触摸或鼠标 UI 坐标转换到当前全屏节点的局部坐标。 */
+    /** 屏幕坐标先转为中心原点，再除以预制件整体缩放。 */
     private pointerToLocal(event: EventTouch | EventMouse): Vec3 {
+        const visibleSize = view.getVisibleSize();
         const location = event.getUILocation();
         return new Vec3(
-            location.x - this.width * 0.5,
-            location.y - this.height * 0.5,
+            (location.x - visibleSize.width * 0.5) / this.viewScale,
+            (location.y - visibleSize.height * 0.5) / this.viewScale,
             0,
         );
     }
 
-    /** 清理当前拖动和落点预览状态。 */
     private resetDrag(): void {
         this.draggingEntity = null;
         this.previewRow = -1;
