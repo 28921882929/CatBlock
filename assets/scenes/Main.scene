@@ -54,32 +54,33 @@
     "_enabled": true,
     "__prefab": null,
     "boardFrame": {
-      "__uuid__": "f7221239-cbad-49a1-b936-72bc5aefe5a7@f9941",
+      "__uuid__": "f5e06068-ddfe-4237-8c8b-0b1101d7ab4a@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
-    "emptyCellFrames": [
-      { "__uuid__": "ce57b38b-ef69-42dc-9974-c3a3c790122c@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "cff2b3dd-1cdc-4cbb-99f7-e50099ea9701@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "de55733b-f0fa-4bc4-a6c2-4e290418dc40@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "def1ca46-ab50-48f4-9fdb-983868eab60d@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "cdfc60d0-fa24-4853-9b44-91ccf3582fd3@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "7a611035-430e-4e9c-a2f2-b417d5df8f04@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "6a4568d3-e98f-42d0-9823-4a14eb2874eb@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "40d7570a-c408-47aa-b4b6-ec0b3d82addb@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "35f9313b-ecd4-4bbf-8b72-f36dfe3d77ee@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "01ab6c8c-9040-46ae-ba2c-f74cd312cfb8@f9941", "__expectedType__": "cc.SpriteFrame" }
+    "closedBoxFrame": {
+      "__uuid__": "6d1cf613-c413-4e48-a89b-d5c237f2caee@f9941",
+      "__expectedType__": "cc.SpriteFrame"
+    },
+    "openBoxFrame": {
+      "__uuid__": "2ccef896-bc36-49c3-9e77-5b5ecb47f3f1@f9941",
+      "__expectedType__": "cc.SpriteFrame"
+    },
+    "catFrames": [
+      { "__uuid__": "18c913fd-eee3-4f23-8121-a1585d3d7525@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "93207a62-545a-4819-a7cf-f5222c72639d@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "cebdea42-c97c-43bb-86ab-66b16b7b0a32@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "5da219e7-9b49-4ad7-9f21-20755188b44d@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "1b1aef4a-b2a2-4482-be75-04d5e7a56a39@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "c6294c4d-8702-4240-bb15-ae629402b3d3@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "fed0594e-e978-49da-8d90-01072bce78bf@f9941", "__expectedType__": "cc.SpriteFrame" }
     ],
-    "occupiedCellFrames": [
-      { "__uuid__": "7e9c968d-583c-4751-aca2-21c3bcfd6318@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "e05d4240-5147-45be-9676-f25925438a24@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "c0e56e04-e185-433c-bac4-d39f308f9abf@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "71a39d87-d123-4f78-8413-d6f95e39dc42@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "058a9086-2dd5-494c-a1ff-912ef18715f3@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "0266768e-437a-4f5b-ab37-770ac48400db@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "5af0b562-8b9f-4384-82d7-eaeeed15ab9b@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "f70d5965-0d7c-45f5-961d-b796b8c57a05@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "aed20cb4-7604-4bfb-adea-d91446cf3282@f9941", "__expectedType__": "cc.SpriteFrame" },
-      { "__uuid__": "daa36bc1-e62b-4b82-964c-20a71c8bf5aa@f9941", "__expectedType__": "cc.SpriteFrame" }
+    "effectIconFrames": [
+      { "__uuid__": "4d4031b1-ccc7-48ec-9489-aee436b4f382@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "6014a686-f7a0-43fe-868f-d3a2e0a662ea@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "a51c8736-783f-48c7-aecb-2ef58623112c@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "4c98319a-88ed-4fa8-a0f2-cede1e0b22ab@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "62f43cf4-8644-4c6f-9353-188021703945@f9941", "__expectedType__": "cc.SpriteFrame" },
+      { "__uuid__": "f44d7287-52d8-4262-bba9-4315dc8217ba@f9941", "__expectedType__": "cc.SpriteFrame" }
     ],
     "gameplayViewPrefab": {
       "__uuid__": "a4e3d7d9-5e6f-4e31-9ef8-2e768ec62f16",

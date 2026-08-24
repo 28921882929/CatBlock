@@ -41,13 +41,21 @@ export class App extends Component {
     @property(SpriteFrame)
     public boardFrame: SpriteFrame | null = null;
 
-    /** 兼容旧资源字段；当前空位样式由玩法预制件统一配置。 */
-    @property([SpriteFrame])
-    public emptyCellFrames: SpriteFrame[] = [];
+    /** 可染色闭合纸箱，普通格与待选块共用同一基础资源。 */
+    @property(SpriteFrame)
+    public closedBoxFrame: SpriteFrame | null = null;
 
-    /** 十种猫箱格资源，数组顺序与空箱格保持一致。 */
+    /** 猫咪探出时使用的开箱前景层。 */
+    @property(SpriteFrame)
+    public openBoxFrame: SpriteFrame | null = null;
+
+    /** 猫咪头部资源，按方块表现样式稳定轮换。 */
     @property([SpriteFrame])
-    public occupiedCellFrames: SpriteFrame[] = [];
+    public catFrames: SpriteFrame[] = [];
+
+    /** 特殊效果贴纸，顺序由 GameplayView 的效果映射统一解释。 */
+    @property([SpriteFrame])
+    public effectIconFrames: SpriteFrame[] = [];
 
     /** 玩法主界面预制件，层级、尺寸、底色和字号均可在编辑器中直接调整。 */
     @property(Prefab)
@@ -132,8 +140,10 @@ export class App extends Component {
         const gameplayView = gameplayNode.addComponent(GameplayView);
         gameplayView.configureAssets({
             board: this.boardFrame,
-            emptyCells: this.emptyCellFrames,
-            occupiedCells: this.occupiedCellFrames,
+            closedBox: this.closedBoxFrame,
+            openBox: this.openBoxFrame,
+            cats: this.catFrames,
+            effectIcons: this.effectIconFrames,
         });
     }
 }
