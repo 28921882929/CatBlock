@@ -48,20 +48,6 @@ const TRAY_SLOT_HEIGHT = 116;
 const TRAY_SLOT_Y = -204;
 const TRAY_SLOT_STEP = 109;
 
-/** 纸箱整箱染色使用固定暖色板，预览状态只在此基础上做轻微叠色。 */
-const BOX_TINTS: readonly Color[] = Object.freeze([
-    new Color(241, 135, 114, 255),
-    new Color(140, 198, 229, 255),
-    new Color(245, 200, 93, 255),
-    new Color(120, 205, 190, 255),
-    new Color(181, 154, 214, 255),
-    new Color(232, 160, 113, 255),
-    new Color(120, 181, 209, 255),
-    new Color(236, 203, 131, 255),
-    new Color(157, 202, 176, 255),
-    new Color(202, 159, 184, 255),
-]);
-
 /** 菜单展示态的色块与效果位置严格参考主美术图，进入对局后立即切换为真实棋盘。 */
 const REFERENCE_PREVIEW_STYLES: readonly number[] = Object.freeze([
     0, 3, 2, 3, 7, 1, 2, 0,
@@ -106,8 +92,8 @@ type PointerSource = 'touch' | 'mouse';
 
 export interface GameplayArtAssets {
     readonly board: SpriteFrame | null;
-    readonly closedBox: SpriteFrame | null;
-    readonly openBox: SpriteFrame | null;
+    readonly closedBoxes: readonly SpriteFrame[];
+    readonly openBoxes: readonly SpriteFrame[];
     readonly cats: readonly SpriteFrame[];
     readonly effectIcons: readonly SpriteFrame[];
 }
@@ -145,8 +131,9 @@ export class GameplayView extends Component {
     private activePointer: PointerSource | null = null;
     private viewScale = 1;
     private boardFrame: SpriteFrame | null = null;
-    private closedBoxFrame: SpriteFrame | null = null;
-    private openBoxFrame: SpriteFrame | null = null;
+    /** 纸箱主色和压印均来自独立皮肤图片，不再由运行时染色生成。 */
+    private closedBoxFrames: readonly SpriteFrame[] = [];
+    private openBoxFrames: readonly SpriteFrame[] = [];
     private catFrames: readonly SpriteFrame[] = [];
     private effectIconFrames: readonly SpriteFrame[] = [];
     private readonly cellVisualLayers = new WeakMap<Node, CellVisualLayers>();
@@ -157,8 +144,8 @@ export class GameplayView extends Component {
 
     public configureAssets(assets: GameplayArtAssets): void {
         this.boardFrame = assets.board;
-        this.closedBoxFrame = assets.closedBox;
-        this.openBoxFrame = assets.openBox;
+        this.closedBoxFrames = assets.closedBoxes.slice();
+        this.openBoxFrames = assets.openBoxes.slice();
         this.catFrames = assets.cats.slice();
         this.effectIconFrames = assets.effectIcons.slice();
         this.applyBoardFrame();
@@ -844,14 +831,16 @@ export class GameplayView extends Component {
         previewTint: Color,
     ): void {
         const layers = this.getCellVisualLayers(node);
-        const tint = BOX_TINTS[Math.abs(visualStyle) % BOX_TINTS.length];
         const hasCat = effectId.length > 0;
         const catFrame = this.frameAt(this.catFrames, visualStyle);
         const iconFrame = this.effectIconFor(effectId);
+        const closedBoxFrame = this.frameAt(this.closedBoxFrames, visualStyle);
+        const openBoxFrame = this.frameAt(this.openBoxFrames, visualStyle);
 
         layers.boxNode.active = true;
-        layers.boxSprite.spriteFrame = hasCat && this.openBoxFrame ? this.openBoxFrame : this.closedBoxFrame;
-        layers.boxSprite.color = this.multiplyColor(tint, previewTint);
+        layers.boxSprite.spriteFrame = hasCat ? (openBoxFrame ?? closedBoxFrame) : closedBoxFrame;
+        // 箱体主色已烘焙进皮肤，只在落点预览时乘上合法/非法状态色。
+        layers.boxSprite.color = previewTint;
         layers.boxNode.setPosition(0, 0);
         layers.boxNode.getComponent(UITransform)?.setContentSize(size, size);
 
@@ -930,15 +919,6 @@ export class GameplayView extends Component {
             iconIndex = Array.from(normalized).reduce((sum, character) => sum + character.charCodeAt(0), 0);
         }
         return this.frameAt(this.effectIconFrames, iconIndex);
-    }
-
-    private multiplyColor(base: Color, overlay: Color): Color {
-        return new Color(
-            Math.round(base.r * overlay.r / 255),
-            Math.round(base.g * overlay.g / 255),
-            Math.round(base.b * overlay.b / 255),
-            255,
-        );
     }
 
     private pieceBounds(cells: readonly { row: number; column: number }[]): { width: number; height: number } {

@@ -41,13 +41,13 @@ export class App extends Component {
     @property(SpriteFrame)
     public boardFrame: SpriteFrame | null = null;
 
-    /** 可染色闭合纸箱，普通格与待选块共用同一基础资源。 */
-    @property(SpriteFrame)
-    public closedBoxFrame: SpriteFrame | null = null;
+    /** 独立闭箱皮肤，数组索引与方块 visualStyle 一一对应。 */
+    @property([SpriteFrame])
+    public closedBoxFrames: SpriteFrame[] = [];
 
-    /** 猫咪探出时使用的开箱前景层。 */
-    @property(SpriteFrame)
-    public openBoxFrame: SpriteFrame | null = null;
+    /** 独立开箱皮肤，与闭箱皮肤保持相同顺序。 */
+    @property([SpriteFrame])
+    public openBoxFrames: SpriteFrame[] = [];
 
     /** 猫咪头部资源，按方块表现样式稳定轮换。 */
     @property([SpriteFrame])
@@ -140,8 +140,8 @@ export class App extends Component {
         const gameplayView = gameplayNode.addComponent(GameplayView);
         gameplayView.configureAssets({
             board: this.boardFrame,
-            closedBox: this.closedBoxFrame,
-            openBox: this.openBoxFrame,
+            closedBoxes: this.closedBoxFrames,
+            openBoxes: this.openBoxFrames,
             cats: this.catFrames,
             effectIcons: this.effectIconFrames,
         });
